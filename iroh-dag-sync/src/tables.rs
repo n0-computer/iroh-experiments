@@ -6,7 +6,10 @@ use redb::{ReadableTable, TableDefinition};
 /// Table mapping ipld hash to blake3 hash.
 const HASH_TO_BLAKE3: TableDefinition<(u64, &[u8]), Hash> = TableDefinition::new("hash_to_blake3");
 /// Table mapping ipld format and blake3 hash to contained links
+///
+/// For blobs containing no links, there should not be an entry in this table.
 const DATA_TO_LINKS: TableDefinition<(u64, Hash), Vec<u8>> = TableDefinition::new("data_to_links");
+
 pub trait ReadableTables {
     fn hash_to_blake3(&self) -> &impl redb::ReadableTable<(u64, &'static [u8]), Hash>;
     fn data_to_links(&self) -> &impl redb::ReadableTable<(u64, Hash), Vec<u8>>;
@@ -22,6 +25,7 @@ pub trait ReadableTables {
             .is_some())
     }
 
+    /// Get the stored links for a given ipld hash.
     fn links(&self, cid: &Cid) -> anyhow::Result<Option<Vec<Cid>>> {
         let hash = self
             .hash_to_blake3()

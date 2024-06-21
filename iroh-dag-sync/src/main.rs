@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -11,8 +10,9 @@ use iroh_io::AsyncSliceReaderExt;
 use iroh_net::discovery::{dns::DnsDiscovery, pkarr_publish::PkarrPublisher, ConcurrentDiscovery};
 use iroh_net::ticket::NodeTicket;
 use iroh_net::NodeAddr;
-use libipld::{cbor::DagCborCodec, codec::Codec, Cid};
+use libipld::{cbor::DagCborCodec, codec::Codec};
 use libipld::{DagCbor, Ipld, IpldCodec};
+use protocol::{ron_parser, Cid, Request};
 use sync::{handle_request, handle_sync_response};
 use tables::{ReadOnlyTables, ReadableTables, Tables};
 use tokio::io::AsyncWriteExt;
@@ -101,15 +101,15 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         args::SubCommand::Export(args) => {
-            let cid = args.cid;
             let tx = mapping_store.begin_read()?;
             let tables = tables::ReadOnlyTables::new(&tx)?;
-            let method = args.method.unwrap_or("full".to_owned());
-            let traversal = get_traversal(cid, method.as_str(), &tables)?;
+            let opts = protocol::TraversalOpts::from_args(&args.cid, &args.traversal)?;
+            println!("using traversal: '{}'", ron_parser().to_string(&opts)?);
+            let traversal = get_traversal(opts, &tables)?;
             match args.target {
                 Some(target) => {
                     let file = tokio::fs::File::create(target).await?;
-                    export_traversal(cid, traversal, &store, file).await?
+                    export_traversal(traversal, &store, file).await?
                 }
                 None => print_traversal(traversal, &store).await?,
             }
@@ -118,9 +118,9 @@ async fn main() -> anyhow::Result<()> {
             let endpoint = create_endpoint(args.net.iroh_port).await?;
             wait_for_relay(&endpoint).await?;
             let addr = endpoint.my_addr().await?;
-            println!("I am {}", addr.node_id);
+            println!("Node id:\n{}", addr.node_id);
             println!("Listening on {:#?}", addr.info);
-            println!("ticket: {}", NodeTicket::new(addr.clone())?);
+            println!("ticket:\n{}", NodeTicket::new(addr.clone())?);
             while let Some(mut connecting) = endpoint.accept().await {
                 let alpn = connecting.alpn().await?;
                 match alpn.as_bytes() {
@@ -141,8 +141,8 @@ async fn main() -> anyhow::Result<()> {
         }
         args::SubCommand::Sync(args) => {
             let endpoint = create_endpoint(args.net.iroh_port).await?;
-            wait_for_relay(&endpoint).await?;
-            let traversal = args.traversal.unwrap_or("full".to_owned());
+            let traversal = protocol::TraversalOpts::from_args(&args.root, &args.traversal)?;
+            println!("using traversal: '{}'", ron_parser().to_string(&traversal)?);
             let inline = args.inline.unwrap_or("always".to_owned());
             let tx = mapping_store.begin_write()?;
             let mut tables = Tables::new(&tx)?;
@@ -150,17 +150,20 @@ async fn main() -> anyhow::Result<()> {
             let endpoint = Arc::new(endpoint);
             let node = NodeAddr::from(args.from);
             let connection = endpoint.connect(node, SYNC_ALPN).await?;
-            let cid = Cid::from_str(&args.cid)?;
             let request = protocol::Request::Sync(protocol::SyncRequest {
-                root: protocol::MiniCid::from(cid),
                 traversal: traversal.clone(),
                 inline,
             });
+            tracing::info!("sending request: {:?}", request);
             let request = postcard::to_allocvec(&request)?;
+            tracing::info!("sending request: {} bytes", request.len());
+            tracing::info!("sending request: {}", hex::encode(&request));
+            let roundtrip: Request = postcard::from_bytes(&request).unwrap();
+            tracing::info!("roundtrip: {:?}", roundtrip);
             let (mut send, recv) = connection.open_bi().await?;
             send.write_all(&request).await?;
             send.finish().await?;
-            handle_sync_response(cid, recv, &mut tables, &store, &traversal).await?;
+            handle_sync_response(recv, &mut tables, &store, traversal).await?;
             drop(tables);
             tx.commit()?;
         }
@@ -200,7 +203,6 @@ where
 }
 
 async fn export_traversal<T>(
-    root: Cid,
     traversal: T,
     store: &iroh_blobs::store::fs::Store,
     mut file: tokio::fs::File,
@@ -211,16 +213,17 @@ where
 {
     #[derive(DagCbor)]
     struct CarFileHeader {
-        version: u64, 
+        version: u64,
         roots: Vec<Cid>,
     }
 
     let header = CarFileHeader {
-        version: 1, 
-        roots: vec![root],
+        version: 1,
+        roots: traversal.roots(),
     };
     let header_bytes = DagCborCodec.encode(&header)?;
-    file.write_all(&postcard::to_allocvec(&(header_bytes.len() as u64))?).await?;
+    file.write_all(&postcard::to_allocvec(&(header_bytes.len() as u64))?)
+        .await?;
     file.write_all(&header_bytes).await?;
     let mut traversal = traversal;
     let mut buffer = [0u8; 9];
@@ -232,10 +235,11 @@ where
         let handle = store.get(&blake3_hash).await?.context("data not found")?;
         let data = handle.data_reader().read_to_end().await?;
         let mut block_bytes = cid.to_bytes(); // postcard::to_extend(&RawCidHeader::from_cid(&cid), Vec::new())?;
-        // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
+                                              // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
         block_bytes.extend_from_slice(&data);
         let size: u64 = block_bytes.len() as u64;
-        file.write_all(&postcard::to_slice(&size, &mut buffer)?).await?;
+        file.write_all(&postcard::to_slice(&size, &mut buffer)?)
+            .await?;
         file.write_all(&block_bytes).await?;
     }
     file.sync_all().await?;

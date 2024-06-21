@@ -1,10 +1,78 @@
 # Iroh dag sync
 
 Example how to use iroh protocols such as gossip and iroh-bytes, as well as
-iroh components such as the blob store, to sync very deep DAGs like you would
-have with a blockchain.
+iroh components such as the blob store, to sync possibly very deep DAGs like you
+would have when working with IPFS data, unixfs directories etc.
 
 As an added complexity, we will support non-BLAKE3 hash functions.
+
+# Getting started
+
+- First, generate some data.
+
+We need a car file. You can just import some directory into ipfs and then export
+it as a car file. Make sure to use --raw-leaves to have a more interesting dag.
+
+```
+> ipfs add linux --raw-leaves
+> ipfs dag export QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV > linux.car
+```
+
+- Import the data:
+
+```
+> cargo run --release import linux.car
+...
+root: QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV
+```
+
+This will create two databases in the current directory. dag.db contains
+information about the structure of the dag, blobs.db (a directory) contains
+the raw data.
+
+- Start a node that makes the data available
+
+```
+> cargo run --release node
+I am irgkesdtbih664hq2fjgd6zf7g6mazqkr7deqzplavmwl3vdbboa
+```
+
+- Now try to sync
+
+In a *different directory*, start the sync process:
+
+```
+> mkdir tmp
+> cd tmp
+> cargo run --release sync --from irgkesdtbih664hq2fjgd6zf7g6mazqkr7deqzplavmwl3vdbboa QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV
+```
+
+This will traverse the entire DAG in depth-first, pre-order, left-to-right
+traversal order. Which may take a while. But - it is just a single request/
+response pair, so we will saturate the wire.
+
+- Export the synced data
+
+```
+> cargo run --release export QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV --target output.car
+```
+
+Export without specifying a target just dumps the cids to stdout.
+
+# Advanced use
+
+When traversing DAGs, you can specify not just the root of a dag, but a more
+complex traversal config in [ron] notation.
+
+E.g. the command line below will fully traverse the DAG, but omit all cids with
+a codec of Raw (0x55).
+
+This is the "stem" of the dag, all non-leaf nodes, or to be precise all nodes
+that could potentially contain links.
+
+```
+> cargo run --release export --traversal 'Full(root:"QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV",filter:NoRaw)'
+```
 
 # Local store
 
@@ -88,3 +156,5 @@ to quickly sync could be the following:
 
 Alternatively the second step could be done as multiple single-cid sync requests
 to neighbours in a round robin way.
+
+[ron]: https://docs.rs/ron/0.8.1/ron/#rusty-object-notation

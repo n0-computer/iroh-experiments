@@ -8,11 +8,11 @@ use iroh_blobs::{
 };
 use iroh_io::{TokioStreamReader, TokioStreamWriter};
 use iroh_net::endpoint::{Connecting, RecvStream, SendStream};
-use libipld::{multihash::MultihashDigest, Cid, Multihash};
+use libipld::multihash::MultihashDigest;
 use tokio::io::AsyncReadExt;
 
 use crate::{
-    protocol::{Request, SyncRequest, SyncResponseHeader},
+    protocol::{Cid, Request, SyncRequest, SyncResponseHeader, TraversalOpts},
     tables::{ReadableTables, Tables},
     traversal::{get_inline, get_traversal, Traversal},
 };
@@ -20,14 +20,19 @@ use crate::{
 const MAX_REQUEST_SIZE: usize = 1024 * 1024 * 16;
 
 pub async fn handle_request(
-    connecting: Connecting,
+    mut connecting: Connecting,
     tables: &impl ReadableTables,
     blobs: &Store,
 ) -> anyhow::Result<()> {
+    tracing::info!("got connecting, {}", connecting.alpn().await?);
     let connection = connecting.await?;
+    tracing::info!("got connection, waiting for request");
     let (send, mut recv) = connection.accept_bi().await?;
+    tracing::info!("got request stream");
     let request = recv.read_to_end(MAX_REQUEST_SIZE).await?;
+    tracing::info!("got request message: {} bytes", request.len());
     let request = postcard::from_bytes::<Request>(&request)?;
+    tracing::info!("got request: {:?}", request);
     match request {
         Request::Sync(args) => {
             handle_sync_request(send, args, tables, blobs).await?;
@@ -42,9 +47,7 @@ pub async fn handle_sync_request(
     tables: &impl ReadableTables,
     blobs: &Store,
 ) -> anyhow::Result<()> {
-    let root_hash: Multihash = Multihash::wrap(request.root.hash_format, &request.root.hash)?;
-    let root = Cid::new_v1(request.root.data_format, root_hash);
-    let traversal = get_traversal(root, request.traversal.as_str(), tables)?;
+    let traversal = get_traversal(request.traversal, tables)?;
     let inline = get_inline(request.inline.as_str())?;
     write_sync_response(send, traversal, blobs, inline).await?;
     Ok(())
@@ -89,14 +92,13 @@ where
 }
 
 pub async fn handle_sync_response<'a>(
-    root: Cid,
     recv: RecvStream,
     tables: &mut Tables<'a>,
     store: &Store,
-    traversal: &str,
+    traversal: TraversalOpts,
 ) -> anyhow::Result<()> {
     let mut reader = TokioStreamReader(recv);
-    let mut traversal = get_traversal(root, traversal, tables)?;
+    let mut traversal = get_traversal(traversal, tables)?;
     loop {
         let Some(cid) = traversal.next().await? else {
             break;

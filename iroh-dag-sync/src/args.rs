@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use iroh_net::NodeId;
-use libipld::Cid;
+
+use crate::protocol::Cid;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -27,10 +28,10 @@ pub struct ImportArgs {
 #[derive(Debug, Parser)]
 pub struct ExportArgs {
     #[clap(help = "The root cid to traverse")]
-    pub cid: Cid,
+    pub cid: Option<Cid>,
 
     #[clap(long, help = "Traversal method to use, full if omitted")]
-    pub method: Option<String>,
+    pub traversal: Option<String>,
 
     #[clap(long, help = "The path to the CAR file to export to")]
     pub target: Option<PathBuf>,
@@ -53,12 +54,12 @@ pub struct NetArgs {
 pub struct SyncArgs {
     #[clap(flatten)]
     pub net: NetArgs,
-    #[clap(long, help = "The root cid to sync")]
-    pub cid: String,
-    #[clap(long, help = "The node to sync from")]
-    pub from: NodeId,
+    #[clap(help = "The root cid to sync")]
+    pub root: Option<Cid>,
     #[clap(long, help = "Traversal method to use, full if omitted")]
     pub traversal: Option<String>,
+    #[clap(long, help = "The node to sync from")]
+    pub from: NodeId,
     #[clap(long, help = "Which data to send inline")]
     pub inline: Option<String>,
 }
