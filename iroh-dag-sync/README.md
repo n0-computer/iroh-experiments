@@ -13,8 +13,10 @@ As an added complexity, we will support non-BLAKE3 hash functions.
 We need a car file. You can just import some directory into ipfs and then export
 it as a car file. Make sure to use --raw-leaves to have a more interesting dag.
 
+Let's use the linux kernel sources as an example.
+
 ```
-> ipfs add linux --raw-leaves
+> ipfs add ../linux --raw-leaves
 > ipfs dag export QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV > linux.car
 ```
 
@@ -61,6 +63,8 @@ Export without specifying a target just dumps the cids to stdout.
 
 # Advanced use
 
+## Specifying traversal options
+
 When traversing DAGs, you can specify not just the root of a dag, but a more
 complex traversal config in [ron] notation.
 
@@ -73,6 +77,33 @@ that could potentially contain links.
 ```
 > cargo run --release export --traversal 'Full(root:"QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV",filter:NoRaw)'
 ```
+
+## Specifying inline options
+
+For each blob of a traversal, the sender runs a predicate that decides whether
+the data should be inlined or not. E.g. we might want to sync small dag nodes
+immediately, but leave syncing large leafs to a different protocol.
+
+We can specify the predicate using the inline argument.
+
+For inlined blobs, we will receive the blake3 hash and the data for each blob.
+For non-inlined blobs we will just receive the blake3 hash for the blob. We can
+then get the data by another means if we need it.
+
+E.g. the example below syncs the linux kernel, but only the non-leaf blocks.
+We get the mapping from cid to blake3 hash for all leaf blocks and can get them
+by another means if we need them.
+
+```
+> cargo run --release export --traversal 'Full(root:"QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV")' --inline NoRaw
+```
+
+**Security note**: we must not rely on the mapping from cid to blake3
+hash, but most validate the mapping once we get the data by another means.
+
+Otherwise somebody might force us to download completely unrelated data. For
+inlined data this check against the hash contained in the cid is already taken
+care of.
 
 # Implementation
 
