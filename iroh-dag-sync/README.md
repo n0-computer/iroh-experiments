@@ -135,9 +135,9 @@ stops as soon as some block that might contain links can not be found.
 
 ### Sync algorithm details
 
-To sync between two nodes, alice (sender) and bob (receiver), bob selects a
-root cid and a deterministic traversal. He communicates this information to
-alice.
+To sync between two nodes, alice (sender) and bob (receiver), bob configures a
+deterministic traversal, for example a root cid and a traversal order. He
+communicates this information to alice.
 
 Alice now executes the traversal and loads the data for each cid, then
 sends it back to bob as a bao4 encoded message. The message starts with the
@@ -160,21 +160,23 @@ in traversing blobs.
 The above approach will work for any traversal provided that it is
 deterministic and that the same traversal is executed on both sides.
 
-A traversal that has a continuous path from the root to each DAG node is
+- A traversal that has a continuous path from the root to each DAG node is
 guaranteed to complete even if bob has incomplete data or no data at all, since
 the DAG is built from the root. E.g. a traversal of a DAG that *omits* leaf
 nodes.
 
-A traversal that does not have a continuous path from the root to each DAG node
-relies on data already being present. E.g. a traversal that only produces leaf
-nodes.
+- A traversal that does _not_ have a continuous path from the root to each DAG
+node relies on data already being present. E.g. a traversal that only produces
+leaf nodes. It will stop if some of the data needed for the traversal is not
+already present on the receiver node.
 
-Traversals can be composed. E.g. you could have a traversal that only produces
+- Traversals can be composed. E.g. you could have a traversal that only produces
 leafs of a dag, then a second stage that lets though all cids where the hash
 ends with an odd number, or filters based on a bitmap.
 
-The simplest possible traversal is to just return the root cid. Using this,
-this protocol can be used to retrieve individual blobs.
+- The simplest possible traversal is to just return the root cid. Using this,
+this protocol can be used to retrieve individual blobs or sequences of unrelated
+blobs.
 
 ### Possible strategy to sync deep DAGs with lots of data.
 
@@ -189,5 +191,15 @@ to quickly sync could be the following:
 
 Alternatively the second step could be done as multiple single-cid sync requests
 to neighbours in a round robin way.
+
+## Network protocol
+
+A request consists of traversal options and options to configure the inline
+predicate. In this example we are using a simple postcard-encoded rust enum
+for this, and using [ron] for parsing the enum.
+
+What traversals there should be is probably highly project dependent, so
+typically you would just define a custom ALPN and then define a number of
+possible traversals that are appropriate for your project.
 
 [ron]: https://docs.rs/ron/0.8.1/ron/#rusty-object-notation
