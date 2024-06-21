@@ -74,24 +74,26 @@ that could potentially contain links.
 > cargo run --release export --traversal 'Full(root:"QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV",filter:NoRaw)'
 ```
 
-# Local store
+# Implementation
 
-## Non-blake3 hashes
+## Local store
+
+### Non-blake3 hashes
 
 We reuse the iroh-blobs store, but have an additional table that maps
 from a non-blake3 hash to a blake3 hash. This table is only populated
 with local, validated data and is therefore assumed to be correct.
 
-## IPLD formats and links
+### IPLD formats and links
 
 We have an additional table that contains a mapping from a blake3 hash
 and an ipld codec/format to a sequence of links. Links in this case are cids.
 
-# Sync algorithm
+## Sync algorithm
 
 The sync algorithm is centered around deterministic traversals of DAGs.
 
-## Deterministic traversals
+### Deterministic traversals
 
 A deterministic traversal of a complete DAG is simple. *Any* traversal is
 deterministic as long as it does not intentionally introduce randomness using
@@ -100,7 +102,7 @@ e.g. random number generators or use of randomized hash based data structures.
 A deterministic traversal for an incomplete DAG is simply a traversal that
 stops as soon as some block that might contain links can not be found.
 
-## Sync algorithm
+### Sync algorithm details
 
 To sync between two nodes, alice (sender) and bob (receiver), bob selects a
 root cid and a deterministic traversal. He communicates this information to
@@ -122,7 +124,7 @@ Only the reception of this additional data might allow the traversal on bob's
 side to continue. So it is important that the traversal is as lazy as possible
 in traversing blobs.
 
-## Possible traversals
+### Possible traversals
 
 The above approach will work for any traversal provided that it is
 deterministic and that the same traversal is executed on both sides.
@@ -143,7 +145,7 @@ ends with an odd number, or filters based on a bitmap.
 The simplest possible traversal is to just return the root cid. Using this,
 this protocol can be used to retrieve individual blobs.
 
-## Possible strategy to sync deep DAGs with lots of data.
+### Possible strategy to sync deep DAGs with lots of data.
 
 Assuming you are connected to several nodes that each have a chain-like DAG
 with some big data blobs hanging off each chain node. A possible strategy
