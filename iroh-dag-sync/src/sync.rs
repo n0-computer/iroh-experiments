@@ -48,7 +48,7 @@ pub async fn handle_sync_request(
     blobs: &Store,
 ) -> anyhow::Result<()> {
     let traversal = get_traversal(request.traversal, tables)?;
-    let inline = get_inline(request.inline.as_str())?;
+    let inline = get_inline(request.inline)?;
     write_sync_response(send, traversal, blobs, inline).await?;
     Ok(())
 }

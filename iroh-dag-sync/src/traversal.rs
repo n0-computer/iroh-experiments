@@ -3,7 +3,9 @@ use std::{collections::HashSet, pin::Pin};
 use futures_lite::Future;
 
 use crate::{
-    protocol::{Cid, FullTraversalOpts, SequenceTraversalOpts, TraversalFilter, TraversalOpts},
+    protocol::{
+        Cid, FullTraversalOpts, InlineOpts, SequenceTraversalOpts, TraversalFilter, TraversalOpts,
+    },
     tables::ReadableTables,
 };
 
@@ -227,11 +229,14 @@ pub fn get_traversal<'a, D: ReadableTables + Unpin + 'a>(
     })
 }
 
-pub fn get_inline(inline: &str) -> anyhow::Result<Box<dyn Fn(&Cid) -> bool>> {
+pub fn get_inline(inline: InlineOpts) -> anyhow::Result<Box<dyn Fn(&Cid) -> bool>> {
     Ok(match inline {
-        "always" => Box::new(|_| true),
-        "never" => Box::new(|_| false),
-        "no_raw" => Box::new(|cid| cid.codec() != 0x55),
-        _ => anyhow::bail!("Unknown inline method: {}", inline),
+        InlineOpts::All => Box::new(|_| true),
+        InlineOpts::NoRaw => Box::new(|cid| cid.codec() != 0x55),
+        InlineOpts::Excude(codecs) => {
+            let codecs: HashSet<u64> = codecs.into_iter().collect();
+            Box::new(move |cid| !codecs.contains(&cid.codec()))
+        }
+        InlineOpts::None => Box::new(|_| false),
     })
 }

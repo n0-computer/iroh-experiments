@@ -88,7 +88,7 @@ pub struct SyncRequest {
     /// walk method. must be one of the registered ones
     pub traversal: TraversalOpts,
     /// which data to send inline
-    pub inline: String,
+    pub inline: InlineOpts,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -193,6 +193,28 @@ pub enum TraversalFilter {
     Excude(BTreeSet<u64>),
 }
 
+#[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub enum InlineOpts {
+    /// Include data for all cids.
+    #[default]
+    All,
+    /// Exclude raw cids.
+    NoRaw,
+    /// Exclude cids with a specific codec.
+    Excude(BTreeSet<u64>),
+    /// Never inline data.
+    None,
+}
+
+impl InlineOpts {
+    pub fn from_args(arg: &Option<String>) -> anyhow::Result<Self> {
+        match arg.as_ref() {
+            Some(arg) => Ok(ron_parser().from_str(arg)?),
+            None => Ok(InlineOpts::All),
+        }
+    }
+}
+
 pub fn ron_parser() -> ::ron::Options {
     ron::Options::default()
         .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
@@ -237,7 +259,7 @@ mod tests {
     use std::str::FromStr;
 
     use crate::protocol::{
-        ron_parser, Cid, FullTraversalOpts, Request, SyncRequest, TraversalOpts,
+        ron_parser, Cid, FullTraversalOpts, InlineOpts, Request, SyncRequest, TraversalOpts,
     };
 
     #[test]
@@ -282,7 +304,7 @@ mod tests {
         });
         let request = Request::Sync(SyncRequest {
             traversal: opts,
-            inline: "always".to_owned(),
+            inline: InlineOpts::All,
         });
         let bytes = postcard::to_allocvec(&request).unwrap();
         let request2: Request = postcard::from_bytes(&bytes).unwrap();

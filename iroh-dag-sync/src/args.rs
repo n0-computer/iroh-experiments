@@ -58,8 +58,8 @@ pub struct SyncArgs {
     pub root: Option<Cid>,
     #[clap(long, help = "Traversal method to use, full if omitted")]
     pub traversal: Option<String>,
-    #[clap(long, help = "The node to sync from")]
-    pub from: NodeId,
     #[clap(long, help = "Which data to send inline")]
     pub inline: Option<String>,
+    #[clap(long, help = "The node to sync from")]
+    pub from: NodeId,
 }

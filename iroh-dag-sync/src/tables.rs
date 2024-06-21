@@ -14,6 +14,7 @@ pub trait ReadableTables {
     fn hash_to_blake3(&self) -> &impl redb::ReadableTable<(u64, &'static [u8]), Hash>;
     fn data_to_links(&self) -> &impl redb::ReadableTable<(u64, Hash), Vec<u8>>;
 
+    #[allow(dead_code)]
     fn has_links(&self, cid: &Cid) -> anyhow::Result<bool> {
         let hash = self
             .hash_to_blake3()

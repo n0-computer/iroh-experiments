@@ -143,7 +143,8 @@ async fn main() -> anyhow::Result<()> {
             let endpoint = create_endpoint(args.net.iroh_port).await?;
             let traversal = protocol::TraversalOpts::from_args(&args.root, &args.traversal)?;
             println!("using traversal: '{}'", ron_parser().to_string(&traversal)?);
-            let inline = args.inline.unwrap_or("always".to_owned());
+            let inline = protocol::InlineOpts::from_args(&args.inline)?;
+            println!("using inline: '{}'", ron_parser().to_string(&inline)?);
             let tx = mapping_store.begin_write()?;
             let mut tables = Tables::new(&tx)?;
             let store = store.clone();
