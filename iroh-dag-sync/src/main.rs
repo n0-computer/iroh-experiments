@@ -13,7 +13,6 @@ use iroh_net::ticket::NodeTicket;
 use iroh_net::NodeAddr;
 use libipld::{cbor::DagCborCodec, codec::Codec, Cid};
 use libipld::{DagCbor, Ipld, IpldCodec};
-use serde::Serialize;
 use sync::{handle_request, handle_sync_response};
 use tables::{ReadOnlyTables, ReadableTables, Tables};
 use tokio::io::AsyncWriteExt;
@@ -216,25 +215,6 @@ where
         roots: Vec<Cid>,
     }
 
-    #[derive(Serialize)]
-    struct RawCidHeader {
-        version: u64,
-        codec: u64,
-        hash: u64,
-        digest_len: u64,
-    }
-
-    impl RawCidHeader {
-        fn from_cid(cid: &Cid) -> Self {
-            Self {
-                version: 1,
-                codec: cid.codec(),
-                hash: cid.hash().code(),
-                digest_len: cid.hash().digest().len() as u64,
-            }
-        }
-    }
-    
     let header = CarFileHeader {
         version: 1, 
         roots: vec![root],
@@ -243,6 +223,7 @@ where
     file.write_all(&postcard::to_allocvec(&(header_bytes.len() as u64))?).await?;
     file.write_all(&header_bytes).await?;
     let mut traversal = traversal;
+    let mut buffer = [0u8; 9];
     while let Some(cid) = traversal.next().await? {
         let blake3_hash = traversal
             .db_mut()
@@ -250,10 +231,11 @@ where
             .context("blake3 hash not found")?;
         let handle = store.get(&blake3_hash).await?.context("data not found")?;
         let data = handle.data_reader().read_to_end().await?;
-        let mut block_bytes = postcard::to_extend(&RawCidHeader::from_cid(&cid), Vec::new())?;
-        block_bytes.extend_from_slice(&cid.hash().digest()); // hash
+        let mut block_bytes = cid.to_bytes(); // postcard::to_extend(&RawCidHeader::from_cid(&cid), Vec::new())?;
+        // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
         block_bytes.extend_from_slice(&data);
-        file.write_all(&postcard::to_allocvec(&(block_bytes.len() as u64))?).await?;
+        let size: u64 = block_bytes.len() as u64;
+        file.write_all(&postcard::to_slice(&size, &mut buffer)?).await?;
         file.write_all(&block_bytes).await?;
     }
     file.sync_all().await?;

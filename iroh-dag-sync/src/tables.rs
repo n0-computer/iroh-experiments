@@ -7,7 +7,6 @@ use redb::{ReadableTable, TableDefinition};
 const HASH_TO_BLAKE3: TableDefinition<(u64, &[u8]), Hash> = TableDefinition::new("hash_to_blake3");
 /// Table mapping ipld format and blake3 hash to contained links
 const DATA_TO_LINKS: TableDefinition<(u64, Hash), Vec<u8>> = TableDefinition::new("data_to_links");
-
 pub trait ReadableTables {
     fn hash_to_blake3(&self) -> &impl redb::ReadableTable<(u64, &'static [u8]), Hash>;
     fn data_to_links(&self) -> &impl redb::ReadableTable<(u64, Hash), Vec<u8>>;
