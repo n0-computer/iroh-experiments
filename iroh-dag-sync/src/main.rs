@@ -117,13 +117,13 @@ async fn main() -> anyhow::Result<()> {
         args::SubCommand::Node(args) => {
             let endpoint = create_endpoint(args.net.iroh_port).await?;
             wait_for_relay(&endpoint).await?;
-            let addr = endpoint.my_addr().await?;
+            let addr = endpoint.node_addr().await?;
             println!("Node id:\n{}", addr.node_id);
             println!("Listening on {:#?}", addr.info);
             println!("ticket:\n{}", NodeTicket::new(addr.clone())?);
             while let Some(mut connecting) = endpoint.accept().await {
                 let alpn = connecting.alpn().await?;
-                match alpn.as_bytes() {
+                match alpn.as_ref() {
                     SYNC_ALPN => {
                         let tx = mapping_store.begin_read()?;
                         let tables = ReadOnlyTables::new(&tx)?;

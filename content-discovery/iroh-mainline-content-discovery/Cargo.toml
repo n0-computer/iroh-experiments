@@ -26,7 +26,7 @@ anyhow = { version = "1", features = ["backtrace"], optional = true }
 postcard = { version = "1", default-features = false, features = ["alloc", "use-std"], optional = true }
 futures = { version = "0.3.25", optional = true }
 rcgen = { version = "0.13.1", optional = true }
-rustls = { version = "0.23", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring"], optional = true }
 genawaiter = { version = "0.99.1", features = ["futures03"], optional = true }
 tokio = { version = "1.36.0", optional = true }
 flume = "0.11.0"

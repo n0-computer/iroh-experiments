@@ -57,7 +57,7 @@ pub fn to_infohash(haf: HashAndFormat) -> mainline::Id {
 }
 
 fn unique_tracker_addrs(
-    mut response: flume::IntoIter<Vec<SocketAddr>>,
+    response: flume::IntoIter<Vec<SocketAddr>>,
 ) -> impl Stream<Item = SocketAddr> {
     Gen::new(|co| async move {
         let mut found = HashSet::new();
