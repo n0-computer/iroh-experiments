@@ -218,6 +218,7 @@ pub fn get_traversal<'a, D: ReadableTables + Unpin + 'a>(
             match filter {
                 TraversalFilter::All => traversal.boxed(),
                 TraversalFilter::NoRaw => traversal.filter(|cid| cid.codec() != 0x55).boxed(),
+                TraversalFilter::JustRaw => traversal.filter(|cid| cid.codec() == 0x55).boxed(),
                 TraversalFilter::Excude(codecs) => {
                     let codecs: HashSet<u64> = codecs.into_iter().collect();
                     traversal

@@ -192,6 +192,17 @@ to quickly sync could be the following:
 Alternatively the second step could be done as multiple single-cid sync requests
 to neighbours in a round robin way.
 
+First step: just get the branch nodes
+```
+cargo run --release sync --from bsmlrj4sodhaivs2r7tssw4zeasqqr42lk6xt4e42ikzazkp4huq --traversal 'Full(root:"QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV",filter:NoRaw)'
+```
+
+Second step: get the leaf nodes. Note that this query requires the first query for the
+traversal on the receiver side to be even possible.
+```
+cargo run --release sync --from bsmlrj4sodhaivs2r7tssw4zeasqqr42lk6xt4e42ikzazkp4huq --traversal 'Full(root:"QmWyLtd4WEJe45UBqCZG94gYY9B8qF3k4DKFX3o2bodHmV",filter:JustRaw)'
+```
+
 ## Network protocol
 
 A request consists of traversal options and options to configure the inline

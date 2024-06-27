@@ -189,6 +189,8 @@ pub enum TraversalFilter {
     All,
     /// Exclude raw cids.
     NoRaw,
+    /// Just raw cids.
+    JustRaw,
     /// Exclude cids with a specific codec.
     Excude(BTreeSet<u64>),
 }
