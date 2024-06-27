@@ -205,6 +205,11 @@ cargo run --release sync --from bsmlrj4sodhaivs2r7tssw4zeasqqr42lk6xt4e42ikzazkp
 
 ## Network protocol
 
+The network protocol is a basic request/response protocol, using a QUIC stream.
+
+
+### Request
+
 A request consists of traversal options and options to configure the inline
 predicate. In this example we are using a simple postcard-encoded rust enum
 for this, and using [ron] for parsing the enum.
@@ -212,5 +217,18 @@ for this, and using [ron] for parsing the enum.
 What traversals there should be is probably highly project dependent, so
 typically you would just define a custom ALPN and then define a number of
 possible traversals that are appropriate for your project.
+
+These traversals are written in rust and can be complex and highly optimized,
+unlike if you had a generic language to define traversals.
+
+### Response
+
+The response is a sequence of frames. Each frame contains a discriminator byte,
+a blake3 hash, and *optionally* the bao4 encoded raw data corresponding to the
+hash.
+
+The response can be incrementally verified every 16 KiB to match the blake3
+hash. Once the response is complete, it can be validated to match the non-blake3
+hash function in the cid corresponding to the response.
 
 [ron]: https://docs.rs/ron/0.8.1/ron/#rusty-object-notation
