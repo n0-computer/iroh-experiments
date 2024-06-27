@@ -51,7 +51,7 @@ macro_rules! log {
 async fn await_relay_region(endpoint: &Endpoint) -> anyhow::Result<()> {
     let t0 = Instant::now();
     loop {
-        let addr = endpoint.my_addr().await?;
+        let addr = endpoint.node_addr().await?;
         if addr.relay_url().is_some() {
             break;
         }
@@ -141,7 +141,7 @@ async fn server(args: Args) -> anyhow::Result<()> {
     let iroh_endpoint = create_endpoint(key.clone(), options.iroh_port, true).await?;
     let db = Tracker::new(options, iroh_endpoint.clone())?;
     await_relay_region(&iroh_endpoint).await?;
-    let addr = iroh_endpoint.my_addr().await?;
+    let addr = iroh_endpoint.node_addr().await?;
     log!("listening on {:?}", addr);
     log!("tracker addr: {}\n", addr.node_id);
     log!("usage:");

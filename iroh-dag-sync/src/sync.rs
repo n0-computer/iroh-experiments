@@ -24,7 +24,10 @@ pub async fn handle_request(
     tables: &impl ReadableTables,
     blobs: &Store,
 ) -> anyhow::Result<()> {
-    tracing::info!("got connecting, {}", connecting.alpn().await?);
+    tracing::info!(
+        "got connecting, {:?}",
+        std::str::from_utf8(&connecting.alpn().await?)
+    );
     let connection = connecting.await?;
     tracing::info!("got connection, waiting for request");
     let (send, mut recv) = connection.accept_bi().await?;

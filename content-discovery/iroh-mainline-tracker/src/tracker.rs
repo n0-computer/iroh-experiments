@@ -869,7 +869,11 @@ impl Tracker {
                     return;
                 };
                 // if we were supporting multiple protocols, we'd need to check the ALPN here.
-                tracing::info!("got connection from {} {}", remote_node_id, alpn);
+                tracing::info!(
+                    "got connection from {} {:?}",
+                    remote_node_id,
+                    std::str::from_utf8(&alpn)
+                );
                 if let Err(cause) = tracker.handle_connection(conn).await {
                     tracing::error!("error handling connection: {}", cause);
                 }
@@ -1256,7 +1260,7 @@ pub async fn get_alpn(connecting: &mut iroh_quinn::Connecting) -> anyhow::Result
 /// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
 async fn iroh_accept_conn(
     mut conn: iroh_net::endpoint::Connecting,
-) -> anyhow::Result<(NodeId, String, iroh_quinn::Connection)> {
+) -> anyhow::Result<(NodeId, Vec<u8>, iroh_quinn::Connection)> {
     let alpn = conn.alpn().await?;
     let conn = conn.await?;
     let peer_id = get_remote_node_id(&conn)?;

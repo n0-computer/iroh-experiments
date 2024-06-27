@@ -229,11 +229,11 @@ async fn serve_db(
     // wait for the endpoint to be ready
     let endpoint = endpoint_fut.await?;
     // wait for the endpoint to figure out its address before making a ticket
-    while endpoint.my_relay().is_none() {
+    while endpoint.home_relay().is_none() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     // make a ticket
-    let addr = endpoint.my_addr().await?;
+    let addr = endpoint.node_addr().await?;
     on_addr(addr)?;
     let rt = LocalPoolHandle::new(1);
     let ps = SendStatus::new();
