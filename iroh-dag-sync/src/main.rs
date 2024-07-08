@@ -7,7 +7,7 @@ use iroh_blobs::store::{Map, MapEntry};
 use iroh_blobs::{store::Store, BlobFormat};
 use iroh_car::CarReader;
 use iroh_io::AsyncSliceReaderExt;
-use iroh_net::discovery::{dns::DnsDiscovery, pkarr_publish::PkarrPublisher, ConcurrentDiscovery};
+use iroh_net::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
 use iroh_net::ticket::NodeTicket;
 use iroh_net::NodeAddr;
 use libipld::{cbor::DagCborCodec, codec::Codec};
