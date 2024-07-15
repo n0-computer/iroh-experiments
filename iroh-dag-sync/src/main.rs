@@ -239,7 +239,7 @@ where
                                               // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
         block_bytes.extend_from_slice(&data);
         let size: u64 = block_bytes.len() as u64;
-        file.write_all(&postcard::to_slice(&size, &mut buffer)?)
+        file.write_all(postcard::to_slice(&size, &mut buffer)?)
             .await?;
         file.write_all(&block_bytes).await?;
     }

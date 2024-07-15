@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, ops::Deref, str::FromStr};
+use std::{collections::BTreeSet, fmt::Display, ops::Deref, str::FromStr};
 
 use iroh_blobs::Hash;
 use libipld::DagCbor;
@@ -224,9 +224,10 @@ pub fn ron_parser() -> ::ron::Options {
         .with_default_extension(ron::extensions::Extensions::UNWRAP_VARIANT_NEWTYPES)
 }
 
-impl ToString for TraversalOpts {
-    fn to_string(&self) -> String {
-        ron_parser().to_string(self).unwrap()
+impl Display for TraversalOpts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let res = ron_parser().to_string(self).unwrap();
+        write!(f, "{}", res)
     }
 }
 
@@ -242,7 +243,7 @@ impl TraversalOpts {
     pub fn from_args(root: &Option<Cid>, traversal: &Option<String>) -> anyhow::Result<Self> {
         match (root, traversal) {
             (Some(root), None) => Ok(TraversalOpts::Full(FullTraversalOpts {
-                root: root.clone(),
+                root: *root,
                 visited: Default::default(),
                 order: Default::default(),
                 filter: Default::default(),
