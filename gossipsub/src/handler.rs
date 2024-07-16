@@ -1,14 +1,14 @@
 use crate::protocol::{GossipFramed, GossipsubCodec, ProtocolConfig};
 use crate::types::{self, RawMessage, Rpc, RpcOut};
 use crate::ValidationError;
-use serde::{Deserialize, Serialize};
-use tokio_util::codec::Framed;
+use futures::{SinkExt, StreamExt};
 use iroh::net::endpoint::{RecvStream, SendStream};
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
-use futures::{StreamExt, SinkExt};
 use tokio::sync::mpsc;
+use tokio_util::codec::Framed;
 use web_time::Instant;
 
 /// The event emitted by the Handler. This informs the behaviour of various events created

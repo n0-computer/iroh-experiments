@@ -1,3 +1,5 @@
+use iroh::net::key::SecretKey;
+
 /// A collection of unit tests mostly ported from the go implementation.
 use super::*;
 
@@ -15,12 +17,11 @@ fn within_variance(value: f64, expected: f64, variance: f64) -> bool {
 // generates a random gossipsub message with sequence number i
 fn make_test_message(seq: u64) -> (MessageId, RawMessage) {
     let raw_message = RawMessage {
-        source: Some(PeerId::random()),
+        source: Some(SecretKey::generate().public()),
         data: vec![12, 34, 56],
         sequence_number: Some(seq),
         topic: Topic::new("test").hash(),
         signature: None,
-        key: None,
         validated: true,
     };
 
@@ -40,11 +41,9 @@ fn default_message_id() -> fn(&Message) -> MessageId {
         // default message id is: source + sequence number
         // NOTE: If either the peer_id or source is not provided, we set to 0;
         let mut source_string = if let Some(peer_id) = message.source.as_ref() {
-            peer_id.to_base58()
+            peer_id.to_string()
         } else {
-            PeerId::from_bytes(&[0, 1, 0])
-                .expect("Valid peer id")
-                .to_base58()
+            SecretKey::from_bytes(&[1u8; 32]).public().to_string()
         };
         source_string.push_str(&message.sequence_number.unwrap_or_default().to_string());
         MessageId::from(source_string)
@@ -71,7 +70,7 @@ fn test_score_time_in_mesh() {
 
     params.topics.insert(topic_hash, topic_params.clone());
 
-    let peer_id = PeerId::random();
+    let peer_id = SecretKey::generate().public();
 
     let mut peer_score = PeerScore::new(params);
     // Peer score should start at 0
@@ -116,7 +115,7 @@ fn test_score_time_in_mesh_cap() {
 
     params.topics.insert(topic_hash, topic_params.clone());
 
-    let peer_id = PeerId::random();
+    let peer_id = SecretKey::generate().public();
 
     let mut peer_score = PeerScore::new(params);
     // Peer score should start at 0
@@ -166,7 +165,7 @@ fn test_score_first_message_deliveries() {
 
     params.topics.insert(topic_hash, topic_params.clone());
 
-    let peer_id = PeerId::random();
+    let peer_id = SecretKey::generate().public();
 
     let mut peer_score = PeerScore::new(params);
     // Peer score should start at 0
@@ -207,7 +206,7 @@ fn test_score_first_message_deliveries_cap() {
 
     params.topics.insert(topic_hash, topic_params.clone());
 
-    let peer_id = PeerId::random();
+    let peer_id = SecretKey::generate().public();
 
     let mut peer_score = PeerScore::new(params);
     // Peer score should start at 0
@@ -247,7 +246,7 @@ fn test_score_first_message_deliveries_decay() {
     };
 
     params.topics.insert(topic_hash, topic_params.clone());
-    let peer_id = PeerId::random();
+    let peer_id = SecretKey::generate().public();
     let mut peer_score = PeerScore::new(params);
     peer_score.add_peer(peer_id);
     peer_score.graft(&peer_id, topic);
@@ -307,9 +306,9 @@ fn test_score_mesh_message_deliveries() {
     // peer C delivers outside the delivery window.
     // we expect peers A and B to have a score of zero, since all other parameter weights are zero.
     // Peer C should have a negative score.
-    let peer_id_a = PeerId::random();
-    let peer_id_b = PeerId::random();
-    let peer_id_c = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
+    let peer_id_b = SecretKey::generate().public();
+    let peer_id_c = SecretKey::generate().public();
 
     let peers = vec![peer_id_a, peer_id_b, peer_id_c];
 
@@ -399,7 +398,7 @@ fn test_score_mesh_message_deliveries_decay() {
     params.topics.insert(topic_hash, topic_params.clone());
     let mut peer_score = PeerScore::new(params);
 
-    let peer_id_a = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
     peer_score.add_peer(peer_id_a);
     peer_score.graft(&peer_id_a, topic);
 
@@ -467,8 +466,8 @@ fn test_score_mesh_failure_penalty() {
     params.topics.insert(topic_hash, topic_params.clone());
     let mut peer_score = PeerScore::new(params);
 
-    let peer_id_a = PeerId::random();
-    let peer_id_b = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
+    let peer_id_b = SecretKey::generate().public();
 
     let peers = vec![peer_id_a, peer_id_b];
 
@@ -544,7 +543,7 @@ fn test_score_invalid_message_deliveries() {
     params.topics.insert(topic_hash, topic_params.clone());
     let mut peer_score = PeerScore::new(params);
 
-    let peer_id_a = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
     peer_score.add_peer(peer_id_a);
     peer_score.graft(&peer_id_a, topic);
 
@@ -591,7 +590,7 @@ fn test_score_invalid_message_deliveris_decay() {
     params.topics.insert(topic_hash, topic_params.clone());
     let mut peer_score = PeerScore::new(params);
 
-    let peer_id_a = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
     peer_score.add_peer(peer_id_a);
     peer_score.graft(&peer_id_a, topic);
 
@@ -647,8 +646,8 @@ fn test_score_reject_message_deliveries() {
     params.topics.insert(topic_hash, topic_params);
     let mut peer_score = PeerScore::new(params);
 
-    let peer_id_a = PeerId::random();
-    let peer_id_b = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
+    let peer_id_b = SecretKey::generate().public();
 
     let peers = vec![peer_id_a, peer_id_b];
 
@@ -764,7 +763,7 @@ fn test_application_score() {
     params.topics.insert(topic_hash, topic_params);
     let mut peer_score = PeerScore::new(params);
 
-    let peer_id_a = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
     peer_score.add_peer(peer_id_a);
     peer_score.graft(&peer_id_a, topic);
 
@@ -806,10 +805,10 @@ fn test_score_ip_colocation() {
     params.topics.insert(topic_hash, topic_params);
     let mut peer_score = PeerScore::new(params);
 
-    let peer_id_a = PeerId::random();
-    let peer_id_b = PeerId::random();
-    let peer_id_c = PeerId::random();
-    let peer_id_d = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
+    let peer_id_b = SecretKey::generate().public();
+    let peer_id_c = SecretKey::generate().public();
+    let peer_id_d = SecretKey::generate().public();
 
     let peers = vec![peer_id_a, peer_id_b, peer_id_c, peer_id_d];
     for peer_id in &peers {
@@ -870,7 +869,7 @@ fn test_score_behaviour_penality() {
     params.topics.insert(topic_hash, topic_params);
     let mut peer_score = PeerScore::new(params);
 
-    let peer_id_a = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
 
     // add a penalty to a non-existent peer.
     peer_score.add_penalty(&peer_id_a, 1);
@@ -923,7 +922,7 @@ fn test_score_retention() {
     params.topics.insert(topic_hash, topic_params);
     let mut peer_score = PeerScore::new(params);
 
-    let peer_id_a = PeerId::random();
+    let peer_id_a = SecretKey::generate().public();
     peer_score.add_peer(peer_id_a);
     peer_score.graft(&peer_id_a, topic);
 

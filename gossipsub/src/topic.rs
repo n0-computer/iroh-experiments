@@ -1,6 +1,5 @@
 use base64::prelude::*;
 use prometheus_client::encoding::EncodeLabelSet;
-use quick_protobuf::Writer;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
@@ -21,30 +20,34 @@ impl Hasher for IdentityHash {
     }
 }
 
+#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
+pub struct TopicDescriptor {
+    pub name: Option<String>,
+    // TODO:
+    // pub auth: Option<AuthOpts>,
+    // pub enc: Option<EncOpts>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Sha256Hash {}
 impl Hasher for Sha256Hash {
     /// Creates a [`TopicHash`] by SHA256 hashing the topic then base64 encoding the
     /// hash.
     fn hash(topic_string: String) -> TopicHash {
-        use quick_protobuf::MessageWrite;
-
-        let topic_descripter = proto::TopicDescriptor {
+        let topic_descripter = TopicDescriptor {
             name: Some(topic_string),
-            auth: None,
-            enc: None,
+            // auth: None,
+            // enc: None,
         };
-        let mut bytes = Vec::with_capacity(topic_descripter.get_size());
-        let mut writer = Writer::new(&mut bytes);
-        topic_descripter
-            .write_message(&mut writer)
-            .expect("Encoding to succeed");
+        let bytes = postcard::to_stdvec(&topic_descripter).unwrap();
         let hash = BASE64_STANDARD.encode(Sha256::digest(&bytes));
         TopicHash { hash }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, EncodeLabelSet, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, EncodeLabelSet, Serialize, Deserialize,
+)]
 pub struct TopicHash {
     /// The topic hash. Stored as a string to align with the protobuf API.
     hash: String,

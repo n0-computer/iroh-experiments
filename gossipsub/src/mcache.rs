@@ -201,18 +201,20 @@ impl MessageCache {
 
 #[cfg(test)]
 mod tests {
+    use iroh::net::key::SecretKey;
+
     use super::*;
     use crate::IdentTopic as Topic;
 
     fn gen_testm(x: u64, topic: TopicHash) -> (MessageId, RawMessage) {
         let default_id = |message: &RawMessage| {
             // default message id is: source + sequence number
-            let mut source_string = message.source.as_ref().unwrap().to_base58();
+            let mut source_string = message.source.as_ref().unwrap().to_string();
             source_string.push_str(&message.sequence_number.unwrap().to_string());
             MessageId::from(source_string)
         };
         let u8x: u8 = x as u8;
-        let source = Some(NodeId::random());
+        let source = Some(SecretKey::generate().public());
         let data: Vec<u8> = vec![u8x];
         let sequence_number = Some(x);
 
@@ -222,7 +224,6 @@ mod tests {
             sequence_number,
             topic,
             signature: None,
-            key: None,
             validated: false,
         };
 

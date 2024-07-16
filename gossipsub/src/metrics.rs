@@ -11,7 +11,7 @@ use prometheus_client::metrics::histogram::{linear_buckets, Histogram};
 use prometheus_client::registry::Registry;
 
 use crate::topic::TopicHash;
-use crate::types::{MessageAcceptance};
+use crate::types::MessageAcceptance;
 
 // Default value that limits for how many topics do we store metrics.
 const DEFAULT_MAX_TOPICS: usize = 300;
@@ -492,15 +492,13 @@ impl Metrics {
     /// Register a new peers connection based on its protocol.
     pub(crate) fn peer_protocol_connected(&mut self) {
         self.peers_per_protocol
-            .get_or_create(&ProtocolLabel { })
+            .get_or_create(&ProtocolLabel {})
             .inc();
     }
 
     /// Removes a peer from the counter based on its protocol when it disconnects.
     pub(crate) fn peer_protocol_disconnected(&mut self) {
-        let metric = self
-            .peers_per_protocol
-            .get_or_create(&ProtocolLabel { });
+        let metric = self.peers_per_protocol.get_or_create(&ProtocolLabel {});
         if metric.get() != 0 {
             // decrement the counter
             metric.set(metric.get() - 1);
@@ -565,8 +563,7 @@ struct ChurnLabel {
 
 /// Label for the kinds of protocols peers can connect as.
 #[derive(PartialEq, Eq, Hash, EncodeLabelSet, Clone, Debug)]
-struct ProtocolLabel {
-}
+struct ProtocolLabel {}
 
 /// Label for the kinds of scoring penalties that can occur
 #[derive(PartialEq, Eq, Hash, EncodeLabelSet, Clone, Debug)]

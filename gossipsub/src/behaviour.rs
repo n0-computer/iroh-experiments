@@ -20,13 +20,16 @@ use rand::{seq::SliceRandom, thread_rng};
 use tokio::sync::mpsc;
 use web_time::{Instant, SystemTime};
 
-use crate::config::{Config, ValidationMode};
 use crate::gossip_promises::GossipPromises;
 use crate::handler::{Handler, HandlerEvent, HandlerIn};
 use crate::mcache::MessageCache;
 use crate::{
     backoff::BackoffStorage,
     metrics::{Churn, Inclusion, Penalty},
+};
+use crate::{
+    config::{Config, ValidationMode},
+    types,
 };
 // use crate::metrics::{Churn, Config as MetricsConfig, Inclusion, Metrics, Penalty};
 use crate::peer_score::{PeerScore, PeerScoreParams, PeerScoreThresholds, RejectReason};
@@ -40,9 +43,8 @@ use crate::types::{
     SubscriptionAction,
 };
 use crate::types::{PeerConnections, RpcOut};
-use crate::{TopicScoreParams};
+use crate::TopicScoreParams;
 use crate::{PublishError, SubscriptionError, ValidationError};
-use quick_protobuf::{MessageWrite, Writer};
 use std::{cmp::Ordering::Equal, fmt::Debug};
 
 #[cfg(test)]
@@ -2586,21 +2588,14 @@ where
                 let sequence_number = last_seq_no.next();
 
                 let signature = {
-                    let message = proto::Message {
-                        from: Some(*author.as_bytes()),
-                        data: Some(data.clone()),
-                        seqno: Some(sequence_number.to_be_bytes().to_vec()),
-                        topic: topic.clone().into_string(),
-                        signature: None,
-                        key: None,
+                    let message = types::Message {
+                        source: Some(*author),
+                        data: data.clone(),
+                        sequence_number: Some(sequence_number),
+                        topic: topic.clone(),
                     };
 
-                    let mut buf = Vec::with_capacity(message.get_size());
-                    let mut writer = Writer::new(&mut buf);
-
-                    message
-                        .write_message(&mut writer)
-                        .expect("Encoding to succeed");
+                    let buf = postcard::to_stdvec(&message).unwrap();
 
                     // the signature is over the bytes "libp2p-pubsub:<protobuf-message>"
                     let mut signature_bytes = SIGNING_PREFIX.to_vec();
@@ -3134,11 +3129,7 @@ fn get_random_peers_dynamic(
 ) -> BTreeSet<NodeId> {
     let mut gossip_peers = match topic_peers.get(topic_hash) {
         // if they exist, filter the peers by `f`
-        Some(peer_list) => peer_list
-            .iter()
-            .copied()
-            .filter(f)
-            .collect(),
+        Some(peer_list) => peer_list.iter().copied().filter(f).collect(),
         None => Vec::new(),
     };
 

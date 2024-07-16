@@ -3,10 +3,10 @@
 // use crate::metrics::{Metrics, Penalty};
 use crate::time_cache::TimeCache;
 use crate::{MessageId, TopicHash};
+use iroh::net::NodeId;
 use std::collections::{hash_map, HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::Duration;
-use iroh::net::NodeId;
 use web_time::Instant;
 
 mod params;

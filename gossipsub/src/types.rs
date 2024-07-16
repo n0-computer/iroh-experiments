@@ -1,9 +1,9 @@
 //! A collection of types using the Gossipsub system.
 use crate::{handler::HandlerIn, TopicHash};
 use iroh::net::NodeId;
-use tokio::{sync::mpsc, task::JoinHandle};
 use std::fmt;
 use std::fmt::Debug;
+use tokio::{sync::mpsc, task::JoinHandle};
 
 use serde::{Deserialize, Serialize};
 
@@ -46,7 +46,7 @@ impl std::fmt::Debug for MessageId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) struct PeerConnections {
     /// Its current connections.
     pub(crate) connections: Vec<usize>,
@@ -86,7 +86,6 @@ impl From<RawMessage> for Message {
         }
     }
 }
-
 
 /// The message sent to the user after a [`RawMessage`] has been transformed by a
 /// [`crate::DataTransform`].

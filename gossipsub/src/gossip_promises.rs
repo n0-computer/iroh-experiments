@@ -1,8 +1,8 @@
 use crate::peer_score::RejectReason;
 use crate::MessageId;
 use crate::ValidationError;
-use std::collections::HashMap;
 use iroh::net::NodeId;
+use std::collections::HashMap;
 use web_time::Instant;
 
 /// Tracks recently sent `IWANT` messages and checks if peers respond to them.

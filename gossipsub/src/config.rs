@@ -5,7 +5,7 @@ use iroh::net::key::SecretKey;
 use iroh::net::NodeId;
 
 use crate::error::ConfigBuilderError;
-use crate::protocol::{ProtocolConfig};
+use crate::protocol::ProtocolConfig;
 use crate::types::{Message, MessageId};
 
 /// The types of message validation that can be employed by gossipsub.
