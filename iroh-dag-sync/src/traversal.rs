@@ -147,8 +147,7 @@ pub struct FullTraversal<D> {
 
 impl<D> FullTraversal<D> {
     pub fn new(db: D, root: Cid, visited: HashSet<Cid>) -> Self {
-        let mut stack = Vec::new();
-        stack.push(root);
+        let stack = vec![root];
         Self {
             stack,
             visited,
@@ -214,7 +213,7 @@ pub fn get_traversal<'a, D: ReadableTables + Unpin + 'a>(
         }) => {
             let visited = visited.unwrap_or_default();
             let filter = filter.unwrap_or_default();
-            let traversal = FullTraversal::new(db, root.clone(), visited.into_iter().collect());
+            let traversal = FullTraversal::new(db, root, visited.into_iter().collect());
             match filter {
                 TraversalFilter::All => traversal.boxed(),
                 TraversalFilter::NoRaw => traversal.filter(|cid| cid.codec() != 0x55).boxed(),
@@ -230,7 +229,9 @@ pub fn get_traversal<'a, D: ReadableTables + Unpin + 'a>(
     })
 }
 
-pub fn get_inline(inline: InlineOpts) -> anyhow::Result<Box<dyn Fn(&Cid) -> bool>> {
+pub type InlineCb = Box<dyn Fn(&Cid) -> bool>;
+
+pub fn get_inline(inline: InlineOpts) -> anyhow::Result<InlineCb> {
     Ok(match inline {
         InlineOpts::All => Box::new(|_| true),
         InlineOpts::NoRaw => Box::new(|cid| cid.codec() != 0x55),

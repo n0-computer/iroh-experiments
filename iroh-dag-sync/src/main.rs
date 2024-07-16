@@ -7,7 +7,7 @@ use iroh_blobs::store::{Map, MapEntry};
 use iroh_blobs::{store::Store, BlobFormat};
 use iroh_car::CarReader;
 use iroh_io::AsyncSliceReaderExt;
-use iroh_net::discovery::{dns::DnsDiscovery, pkarr_publish::PkarrPublisher, ConcurrentDiscovery};
+use iroh_net::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
 use iroh_net::ticket::NodeTicket;
 use iroh_net::NodeAddr;
 use libipld::{cbor::DagCborCodec, codec::Codec};
@@ -239,7 +239,7 @@ where
                                               // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
         block_bytes.extend_from_slice(&data);
         let size: u64 = block_bytes.len() as u64;
-        file.write_all(&postcard::to_slice(&size, &mut buffer)?)
+        file.write_all(postcard::to_slice(&size, &mut buffer)?)
             .await?;
         file.write_all(&block_bytes).await?;
     }

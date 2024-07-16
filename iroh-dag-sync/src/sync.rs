@@ -77,13 +77,8 @@ where
             send.0
                 .write_all(&SyncResponseHeader::Data(hash).as_bytes())
                 .await?;
-            send_blob::<iroh_blobs::store::fs::Store, _>(
-                &blobs,
-                hash,
-                &RangeSpec::all(),
-                &mut send,
-            )
-            .await?;
+            send_blob::<iroh_blobs::store::fs::Store, _>(blobs, hash, &RangeSpec::all(), &mut send)
+                .await?;
         } else {
             send.0
                 .write_all(&SyncResponseHeader::Hash(hash).as_bytes())
