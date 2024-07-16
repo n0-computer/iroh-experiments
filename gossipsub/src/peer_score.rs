@@ -22,6 +22,7 @@ mod tests;
 /// The number of seconds delivery messages are stored in the cache.
 const TIME_CACHE_DURATION: u64 = 120;
 
+#[derive(Debug)]
 pub(crate) struct PeerScore {
     params: PeerScoreParams,
     /// The score parameters.
@@ -35,6 +36,7 @@ pub(crate) struct PeerScore {
 }
 
 /// General statistics for a given gossipsub peer.
+#[derive(Debug)]
 struct PeerStats {
     /// Connection status of the peer.
     status: ConnectionStatus,
@@ -48,6 +50,7 @@ struct PeerStats {
     application_score: f64,
 }
 
+#[derive(Debug)]
 enum ConnectionStatus {
     /// The peer is connected.
     Connected,
@@ -87,6 +90,7 @@ impl PeerStats {
 }
 
 /// Stats assigned to peer for each topic.
+#[derive(Debug)]
 struct TopicStats {
     mesh_status: MeshStatus,
     /// Number of first message deliveries.
@@ -109,6 +113,7 @@ impl TopicStats {
 }
 
 /// Status defining a peer's inclusion in the mesh and associated parameters.
+#[derive(Debug)]
 enum MeshStatus {
     Active {
         /// The time the peer was last GRAFTed;

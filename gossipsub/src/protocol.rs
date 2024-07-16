@@ -5,7 +5,6 @@ use crate::types::{
     self, ControlAction, MessageId, PeerInfo, RawMessage, Rpc, Subscription, SubscriptionAction,
 };
 use crate::ValidationError;
-use byteorder::{BigEndian, ByteOrder};
 use bytes::{BufMut, Bytes, BytesMut};
 use iroh::net::key::Signature;
 use iroh::net::NodeId;
@@ -16,7 +15,7 @@ use tokio_serde::{Deserializer, Serializer};
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 pub(crate) const SIGNING_PREFIX: &[u8] = b"libp2p-pubsub:";
-pub(crate) const GOSSIPSUB_1_1_0_PROTOCOL: &[u8] = b"/meshsub/1.1.0";
+pub const GOSSIPSUB_1_1_0_PROTOCOL: &[u8] = b"/meshsub/1.1.0";
 
 /// Configuration
 #[derive(Debug, Clone)]
@@ -404,13 +403,11 @@ mod tests {
             let config = Config::default();
             let mut gs: Behaviour =
                 Behaviour::new(crate::MessageAuthenticity::Signed(keypair.0), config).unwrap();
-            todo!()
-            // TODO
-            // let data = (0..g.gen_range(10..10024u32))
-            //     .map(|_| u8::arbitrary(g))
-            //     .collect::<Vec<_>>();
-            // let topic_id = TopicId::arbitrary(g).0;
-            // Message(gs.build_raw_message(topic_id, data).unwrap())
+            let data = (0..gen_range(g, 10..10024))
+                .map(|_| u8::arbitrary(g))
+                .collect::<Vec<_>>();
+            let topic_id = TopicId::arbitrary(g).0;
+            Message(gs.build_raw_message(topic_id, data).unwrap())
         }
     }
 
@@ -419,12 +416,10 @@ mod tests {
 
     impl Arbitrary for TopicId {
         fn arbitrary(g: &mut Gen) -> Self {
-            // TODO
-            todo!()
-            // let topic_string: String = (0..g.gen_range(20..1024u32))
-            //     .map(|_| char::arbitrary(g))
-            //     .collect::<String>();
-            // TopicId(Topic::new(topic_string).into())
+            let topic_string: String = (0..gen_range(g, 20..1024))
+                .map(|_| char::arbitrary(g))
+                .collect::<String>();
+            TopicId(Topic::new(topic_string).into())
         }
     }
 
@@ -436,6 +431,10 @@ mod tests {
             // Small enough to be inlined.
             TestKeypair(SecretKey::generate())
         }
+    }
+
+    fn gen_range(gen: &mut Gen, range: std::ops::Range<u32>) -> u32 {
+        u32::arbitrary(gen) % (range.end - range.start) + range.start
     }
 
     impl std::fmt::Debug for TestKeypair {

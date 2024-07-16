@@ -9,10 +9,11 @@ use std::collections::{
 use std::time::Duration;
 use web_time::Instant;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct HeartbeatIndex(usize);
 
 /// Stores backoffs in an efficient manner.
+#[derive(Debug)]
 pub(crate) struct BackoffStorage {
     /// Stores backoffs and the index in backoffs_by_heartbeat per peer per topic.
     backoffs: HashMap<TopicHash, HashMap<NodeId, (Instant, HeartbeatIndex)>>,

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use web_time::Instant;
 
 /// Tracks recently sent `IWANT` messages and checks if peers respond to them.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(crate) struct GossipPromises {
     /// Stores for each tracked message id and peer the instant when this promise expires.
     ///

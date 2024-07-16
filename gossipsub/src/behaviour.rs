@@ -1,23 +1,25 @@
 use std::{
     cmp::{max, Ordering},
-    collections::HashSet,
-    collections::VecDeque,
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt,
     net::IpAddr,
+    sync::Arc,
     time::Duration,
 };
 
 use futures::StreamExt;
 use futures_ticker::Ticker;
-use iroh::net::{
-    endpoint::{Connecting, Connection},
-    key::SecretKey,
-    NodeId,
+use iroh::{
+    net::{
+        endpoint::{Connecting, Connection},
+        key::SecretKey,
+        NodeAddr, NodeId,
+    },
+    node::ProtocolHandler,
 };
 use rand::{seq::SliceRandom, thread_rng};
 
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::JoinHandle};
 use web_time::{Instant, SystemTime};
 
 use crate::gossip_promises::GossipPromises;
@@ -56,7 +58,7 @@ mod tests;
 ///
 /// NOTE: The default validation settings are to require signatures. The [`ValidationMode`]
 /// should be updated in the [`Config`] to allow for unsigned messages.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum MessageAuthenticity {
     /// Message signing is enabled. The author will be the owner of the key and the sequence number
     /// will be linearly increasing.
@@ -128,6 +130,7 @@ pub enum Event {
 /// A data structure for storing configuration for publishing messages. See [`MessageAuthenticity`]
 /// for further details.
 #[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
 enum PublishConfig {
     Signing {
         keypair: SecretKey,
@@ -207,13 +210,218 @@ impl From<MessageAuthenticity> for PublishConfig {
 ///
 /// The TopicSubscriptionFilter allows applications to implement specific filters on topics to
 /// prevent unwanted messages being propagated and evaluated.
-pub struct Behaviour<D = IdentityTransform, F = AllowAllSubscriptionFilter> {
+#[derive(Debug)]
+pub struct Behaviour {
+    sender: mpsc::Sender<ActorMessage>,
+    task: JoinHandle<()>,
+}
+
+impl Behaviour {
+    pub fn new(privacy: MessageAuthenticity, config: Config) -> anyhow::Result<Self> {
+        let this = Self::new_with_subscription_filter_and_transform(
+            privacy,
+            config,
+            AllowAllSubscriptionFilter::default(),
+            IdentityTransform::default(),
+        )?;
+        Ok(this)
+    }
+
+    pub fn new_with_subscription_filter<D, F>(
+        privacy: MessageAuthenticity,
+        config: Config,
+        subscription_filter: F,
+    ) -> anyhow::Result<Self>
+    where
+        D: DataTransform + Default + Send + 'static,
+        F: TopicSubscriptionFilter + Send + 'static,
+    {
+        let res = Self::new_with_subscription_filter_and_transform(
+            privacy,
+            config,
+            subscription_filter,
+            D::default(),
+        )?;
+        Ok(res)
+    }
+
+    pub fn new_with_subscription_filter_and_transform<D, F>(
+        privacy: MessageAuthenticity,
+        config: Config,
+        subscription_filter: F,
+        data_transform: D,
+    ) -> anyhow::Result<Self>
+    where
+        D: DataTransform + Send + 'static,
+        F: TopicSubscriptionFilter + Send + 'static,
+    {
+        let inner = BehaviourInner::new_with_subscription_filter_and_transform(
+            privacy,
+            config,
+            subscription_filter,
+            data_transform,
+        )
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let (s, r) = mpsc::channel(128);
+        let task = tokio::task::spawn(async move {
+            inner.run().await;
+        });
+
+        Ok(Behaviour { sender: s, task })
+    }
+
+    /// Connect to another node, running gossip.
+    pub async fn connect(&self, node_addr: NodeAddr) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    /// Lists the hashes of the topics we are currently subscribed to.
+    pub fn topics(&self) -> Vec<TopicHash> {
+        todo!()
+    }
+
+    /// Lists all mesh peers for a certain topic hash.
+    pub fn mesh_peers(&self, topic_hash: TopicHash) -> Vec<NodeId> {
+        todo!()
+    }
+
+    pub fn all_mesh_peers(&self) -> Vec<NodeId> {
+        todo!()
+    }
+
+    /// Lists all known peers and their associated subscribed topics.
+    pub fn all_peers(&self) -> Vec<(NodeId, Vec<TopicHash>)> {
+        todo!()
+    }
+
+    /// Returns the gossipsub score for a given peer, if one exists.
+    pub fn peer_score(&self, peer_id: &NodeId) -> Option<f64> {
+        todo!()
+    }
+
+    /// Subscribe to a topic.
+    ///
+    /// Returns [`Ok(true)`] if the subscription worked. Returns [`Ok(false)`] if we were already
+    /// subscribed.
+    pub fn subscribe<H: Hasher>(&self, topic: &Topic<H>) -> Result<bool, SubscriptionError> {
+        todo!()
+    }
+
+    /// Subscribe to events
+    pub fn subscribe_events(&self) -> Option<mpsc::Receiver<Event>> {
+        todo!()
+    }
+
+    /// Unsubscribes from a topic.
+    ///
+    /// Returns [`Ok(true)`] if we were subscribed to this topic.
+    pub fn unsubscribe<H: Hasher>(&self, topic: &Topic<H>) -> Result<bool, PublishError> {
+        todo!()
+    }
+
+    /// Publishes a message with multiple topics to the network.
+    pub fn publish(
+        &self,
+        topic: impl Into<TopicHash>,
+        data: impl Into<Vec<u8>>,
+    ) -> Result<MessageId, PublishError> {
+        todo!()
+    }
+
+    /// This function should be called when [`Config::validate_messages()`] is `true` after
+    /// the message got validated by the caller. Messages are stored in the ['Memcache'] and
+    /// validation is expected to be fast enough that the messages should still exist in the cache.
+    /// There are three possible validation outcomes and the outcome is given in acceptance.
+    ///
+    /// If acceptance = [`MessageAcceptance::Accept`] the message will get propagated to the
+    /// network. The `propagation_source` parameter indicates who the message was received by and
+    /// will not be forwarded back to that peer.
+    ///
+    /// If acceptance = [`MessageAcceptance::Reject`] the message will be deleted from the memcache
+    /// and the P₄ penalty will be applied to the `propagation_source`.
+    //
+    /// If acceptance = [`MessageAcceptance::Ignore`] the message will be deleted from the memcache
+    /// but no P₄ penalty will be applied.
+    ///
+    /// This function will return true if the message was found in the cache and false if was not
+    /// in the cache anymore.
+    ///
+    /// This should only be called once per message.
+    pub fn report_message_validation_result(
+        &self,
+        msg_id: &MessageId,
+        propagation_source: &NodeId,
+        acceptance: MessageAcceptance,
+    ) -> Result<bool, PublishError> {
+        todo!()
+    }
+
+    /// Adds a new peer to the list of explicitly connected peers.
+    pub fn add_explicit_peer(&self, peer_id: &NodeId) {
+        todo!()
+    }
+
+    /// This removes the peer from explicitly connected peers, note that this does not disconnect
+    /// the peer.
+    pub fn remove_explicit_peer(&self, peer_id: &NodeId) {
+        todo!()
+    }
+
+    /// Blacklists a peer. All messages from this peer will be rejected and any message that was
+    /// created by this peer will be rejected.
+    pub fn blacklist_peer(&self, peer_id: &NodeId) {
+        todo!()
+    }
+
+    /// Removes a peer from the blacklist if it has previously been blacklisted.
+    pub fn remove_blacklisted_peer(&self, peer_id: &NodeId) {
+        todo!()
+    }
+
+    /// Sets scoring parameters for a topic.
+    ///
+    /// The [`Self::with_peer_score()`] must first be called to initialise peer scoring.
+    pub fn set_topic_params<H: Hasher>(
+        &self,
+        topic: Topic<H>,
+        params: TopicScoreParams,
+    ) -> Result<(), &'static str> {
+        todo!()
+    }
+
+    /// Returns a scoring parameters for a topic if existent.
+    pub fn get_topic_params<H: Hasher>(&self, topic: &Topic<H>) -> Option<&TopicScoreParams> {
+        todo!()
+    }
+
+    /// Sets the application specific score for a peer. Returns true if scoring is active and
+    /// the peer is connected or if the score of the peer is not yet expired, false otherwise.
+    pub fn set_application_score(&self, peer_id: &NodeId, new_score: f64) -> bool {
+        todo!()
+    }
+
+    /// Constructs a [`RawMessage`] performing message signing if required.
+    pub(crate) fn build_raw_message(
+        &self,
+        topic: TopicHash,
+        data: Vec<u8>,
+    ) -> Result<RawMessage, PublishError> {
+        todo!()
+    }
+}
+
+#[derive(Debug)]
+enum ActorMessage {}
+
+#[derive(Debug)]
+struct BehaviourInner<D = IdentityTransform, F = AllowAllSubscriptionFilter> {
     /// Configuration providing gossipsub performance parameters.
     config: Config,
 
     /// Events that need to be yielded to user
-    // TODO: channel
-    events: VecDeque<Event>,
+    events: mpsc::Sender<Event>,
+    events_receiver: Option<mpsc::Receiver<Event>>,
 
     /// Pools non-urgent control messages between heartbeats.
     control_pool: HashMap<NodeId, Vec<ControlAction>>,
@@ -304,92 +512,14 @@ pub struct Behaviour<D = IdentityTransform, F = AllowAllSubscriptionFilter> {
     // metrics: Option<Metrics>,
 }
 
-impl<D, F> Behaviour<D, F>
+impl<D, F> BehaviourInner<D, F>
 where
-    D: DataTransform + Default,
-    F: TopicSubscriptionFilter + Default,
-{
-    /// Creates a Gossipsub [`Behaviour`] struct given a set of parameters specified via a
-    /// [`Config`]. This has no subscription filter and uses no compression.
-    pub fn new(privacy: MessageAuthenticity, config: Config) -> Result<Self, &'static str> {
-        Self::new_with_subscription_filter_and_transform(
-            privacy,
-            config,
-            F::default(),
-            D::default(),
-        )
-    }
-
-    /// Creates a Gossipsub [`Behaviour`] struct given a set of parameters specified via a
-    /// [`Config`]. This has no subscription filter and uses no compression.
-    /// Metrics can be evaluated by passing a reference to a [`Registry`].
-    pub fn new_with_metrics(
-        privacy: MessageAuthenticity,
-        config: Config,
-        // metrics_registry: &mut Registry,
-        // metrics_config: MetricsConfig,
-    ) -> Result<Self, &'static str> {
-        Self::new_with_subscription_filter_and_transform(
-            privacy,
-            config,
-            F::default(),
-            D::default(),
-        )
-    }
-}
-
-impl<D, F> Behaviour<D, F>
-where
-    D: DataTransform + Default,
-    F: TopicSubscriptionFilter,
-{
-    /// Creates a Gossipsub [`Behaviour`] struct given a set of parameters specified via a
-    /// [`Config`] and a custom subscription filter.
-    pub fn new_with_subscription_filter(
-        privacy: MessageAuthenticity,
-        config: Config,
-        // metrics: Option<(&mut Registry, MetricsConfig)>,
-        subscription_filter: F,
-    ) -> Result<Self, &'static str> {
-        Self::new_with_subscription_filter_and_transform(
-            privacy,
-            config,
-            subscription_filter,
-            D::default(),
-        )
-    }
-}
-
-impl<D, F> Behaviour<D, F>
-where
-    D: DataTransform,
-    F: TopicSubscriptionFilter + Default,
-{
-    /// Creates a Gossipsub [`Behaviour`] struct given a set of parameters specified via a
-    /// [`Config`] and a custom data transform.
-    pub fn new_with_transform(
-        privacy: MessageAuthenticity,
-        config: Config,
-        // metrics: Option<(&mut Registry, MetricsConfig)>,
-        data_transform: D,
-    ) -> Result<Self, &'static str> {
-        Self::new_with_subscription_filter_and_transform(
-            privacy,
-            config,
-            F::default(),
-            data_transform,
-        )
-    }
-}
-
-impl<D, F> Behaviour<D, F>
-where
-    D: DataTransform,
-    F: TopicSubscriptionFilter,
+    D: DataTransform + Send + 'static,
+    F: TopicSubscriptionFilter + Send + 'static,
 {
     /// Creates a Gossipsub [`Behaviour`] struct given a set of parameters specified via a
     /// [`Config`] and a custom subscription filter and data transform.
-    pub fn new_with_subscription_filter_and_transform(
+    fn new_with_subscription_filter_and_transform(
         privacy: MessageAuthenticity,
         config: Config,
         // metrics: Option<(&mut Registry, MetricsConfig)>,
@@ -402,9 +532,12 @@ where
         // were received locally.
         validate_config(&privacy, config.validation_mode())?;
 
-        Ok(Behaviour {
+        let (events, events_receiver) = mpsc::channel(128);
+
+        Ok(BehaviourInner {
             // metrics: metrics.map(|(registry, cfg)| Metrics::new(registry, cfg)),
-            events: VecDeque::new(),
+            events,
+            events_receiver: Some(events_receiver),
             control_pool: HashMap::new(),
             publish_config: privacy.into(),
             duplicate_cache: DuplicateCache::new(config.duplicate_cache_time()),
@@ -439,24 +572,28 @@ where
             data_transform,
         })
     }
-}
 
-impl<D, F> Behaviour<D, F>
-where
-    D: DataTransform + Send + 'static,
-    F: TopicSubscriptionFilter + Send + 'static,
-{
+    /// Connect to another node, running gossip.
+    async fn connect(&self, node_addr: NodeAddr) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    /// Subscribe to events
+    fn subscribe_events(&mut self) -> Option<mpsc::Receiver<Event>> {
+        self.events_receiver.take()
+    }
+
     /// Lists the hashes of the topics we are currently subscribed to.
-    pub fn topics(&self) -> impl Iterator<Item = &TopicHash> {
+    fn topics(&self) -> impl Iterator<Item = &TopicHash> {
         self.mesh.keys()
     }
 
     /// Lists all mesh peers for a certain topic hash.
-    pub fn mesh_peers(&self, topic_hash: &TopicHash) -> impl Iterator<Item = &NodeId> {
+    fn mesh_peers(&self, topic_hash: &TopicHash) -> impl Iterator<Item = &NodeId> {
         self.mesh.get(topic_hash).into_iter().flat_map(|x| x.iter())
     }
 
-    pub fn all_mesh_peers(&self) -> impl Iterator<Item = &NodeId> {
+    fn all_mesh_peers(&self) -> impl Iterator<Item = &NodeId> {
         let mut res = BTreeSet::new();
         for peers in self.mesh.values() {
             res.extend(peers);
@@ -465,19 +602,14 @@ where
     }
 
     /// Lists all known peers and their associated subscribed topics.
-    pub fn all_peers(&self) -> impl Iterator<Item = (&NodeId, Vec<&TopicHash>)> {
+    fn all_peers(&self) -> impl Iterator<Item = (&NodeId, Vec<&TopicHash>)> {
         self.peer_topics
             .iter()
             .map(|(peer_id, topic_set)| (peer_id, topic_set.iter().collect()))
     }
 
-    /// Lists all known peers and their associated protocol.
-    pub fn peer_protocol(&self) -> impl Iterator<Item = &NodeId> {
-        self.connected_peers.iter().map(|(k, _v)| k)
-    }
-
     /// Returns the gossipsub score for a given peer, if one exists.
-    pub fn peer_score(&self, peer_id: &NodeId) -> Option<f64> {
+    fn peer_score(&self, peer_id: &NodeId) -> Option<f64> {
         self.peer_score
             .as_ref()
             .map(|(score, ..)| score.score(peer_id))
@@ -487,7 +619,7 @@ where
     ///
     /// Returns [`Ok(true)`] if the subscription worked. Returns [`Ok(false)`] if we were already
     /// subscribed.
-    pub fn subscribe<H: Hasher>(&mut self, topic: &Topic<H>) -> Result<bool, SubscriptionError> {
+    fn subscribe<H: Hasher>(&mut self, topic: &Topic<H>) -> Result<bool, SubscriptionError> {
         tracing::debug!(%topic, "Subscribing to topic");
         let topic_hash = topic.hash();
         if !self.subscription_filter.can_subscribe(&topic_hash) {
@@ -517,7 +649,7 @@ where
     ///
     /// Returns [`Ok(true)`] if we were subscribed to this topic.
     #[allow(clippy::unnecessary_wraps)]
-    pub fn unsubscribe<H: Hasher>(&mut self, topic: &Topic<H>) -> Result<bool, PublishError> {
+    fn unsubscribe<H: Hasher>(&mut self, topic: &Topic<H>) -> Result<bool, PublishError> {
         tracing::debug!(%topic, "Unsubscribing from topic");
         let topic_hash = topic.hash();
 
@@ -543,7 +675,7 @@ where
     }
 
     /// Publishes a message with multiple topics to the network.
-    pub fn publish(
+    fn publish(
         &mut self,
         topic: impl Into<TopicHash>,
         data: impl Into<Vec<u8>>,
@@ -680,26 +812,7 @@ where
         Ok(msg_id)
     }
 
-    /// This function should be called when [`Config::validate_messages()`] is `true` after
-    /// the message got validated by the caller. Messages are stored in the ['Memcache'] and
-    /// validation is expected to be fast enough that the messages should still exist in the cache.
-    /// There are three possible validation outcomes and the outcome is given in acceptance.
-    ///
-    /// If acceptance = [`MessageAcceptance::Accept`] the message will get propagated to the
-    /// network. The `propagation_source` parameter indicates who the message was received by and
-    /// will not be forwarded back to that peer.
-    ///
-    /// If acceptance = [`MessageAcceptance::Reject`] the message will be deleted from the memcache
-    /// and the P₄ penalty will be applied to the `propagation_source`.
-    //
-    /// If acceptance = [`MessageAcceptance::Ignore`] the message will be deleted from the memcache
-    /// but no P₄ penalty will be applied.
-    ///
-    /// This function will return true if the message was found in the cache and false if was not
-    /// in the cache anymore.
-    ///
-    /// This should only be called once per message.
-    pub fn report_message_validation_result(
+    fn report_message_validation_result(
         &mut self,
         msg_id: &MessageId,
         propagation_source: &NodeId,
@@ -768,7 +881,7 @@ where
     }
 
     /// Adds a new peer to the list of explicitly connected peers.
-    pub fn add_explicit_peer(&mut self, peer_id: &NodeId) {
+    fn add_explicit_peer(&mut self, peer_id: &NodeId) {
         tracing::debug!(peer=%peer_id, "Adding explicit peer");
 
         self.explicit_peers.insert(*peer_id);
@@ -778,21 +891,21 @@ where
 
     /// This removes the peer from explicitly connected peers, note that this does not disconnect
     /// the peer.
-    pub fn remove_explicit_peer(&mut self, peer_id: &NodeId) {
+    fn remove_explicit_peer(&mut self, peer_id: &NodeId) {
         tracing::debug!(peer=%peer_id, "Removing explicit peer");
         self.explicit_peers.remove(peer_id);
     }
 
     /// Blacklists a peer. All messages from this peer will be rejected and any message that was
     /// created by this peer will be rejected.
-    pub fn blacklist_peer(&mut self, peer_id: &NodeId) {
+    fn blacklist_peer(&mut self, peer_id: &NodeId) {
         if self.blacklisted_peers.insert(*peer_id) {
             tracing::debug!(peer=%peer_id, "Peer has been blacklisted");
         }
     }
 
     /// Removes a peer from the blacklist if it has previously been blacklisted.
-    pub fn remove_blacklisted_peer(&mut self, peer_id: &NodeId) {
+    fn remove_blacklisted_peer(&mut self, peer_id: &NodeId) {
         if self.blacklisted_peers.remove(peer_id) {
             tracing::debug!(peer=%peer_id, "Peer has been removed from the blacklist");
         }
@@ -833,7 +946,7 @@ where
     /// Sets scoring parameters for a topic.
     ///
     /// The [`Self::with_peer_score()`] must first be called to initialise peer scoring.
-    pub fn set_topic_params<H: Hasher>(
+    fn set_topic_params<H: Hasher>(
         &mut self,
         topic: Topic<H>,
         params: TopicScoreParams,
@@ -847,13 +960,13 @@ where
     }
 
     /// Returns a scoring parameters for a topic if existent.
-    pub fn get_topic_params<H: Hasher>(&self, topic: &Topic<H>) -> Option<&TopicScoreParams> {
+    fn get_topic_params<H: Hasher>(&self, topic: &Topic<H>) -> Option<&TopicScoreParams> {
         self.peer_score.as_ref()?.0.get_topic_params(&topic.hash())
     }
 
     /// Sets the application specific score for a peer. Returns true if scoring is active and
     /// the peer is connected or if the score of the peer is not yet expired, false otherwise.
-    pub fn set_application_score(&mut self, peer_id: &NodeId, new_score: f64) -> bool {
+    fn set_application_score(&mut self, peer_id: &NodeId, new_score: f64) -> bool {
         if let Some((peer_score, ..)) = &mut self.peer_score {
             peer_score.set_application_score(peer_id, new_score)
         } else {
@@ -969,7 +1082,6 @@ where
                 vec![topic_hash],
                 &self.mesh,
                 self.peer_topics.get(&peer_id),
-                &mut self.events,
                 &self.connected_peers,
             );
         }
@@ -1388,7 +1500,6 @@ where
                         vec![&topic_hash],
                         &self.mesh,
                         self.peer_topics.get(peer_id),
-                        &mut self.events,
                         &self.connected_peers,
                     );
 
@@ -1697,7 +1808,7 @@ where
         // Dispatch the message to the user if we are subscribed to any of the topics
         if self.mesh.contains_key(&message.topic) {
             tracing::debug!("Sending received message to user");
-            self.events.push_back(Event::Message {
+            self.events.send(Event::Message {
                 propagation_source: *propagation_source,
                 message_id: msg_id.clone(),
                 message,
@@ -1905,7 +2016,6 @@ where
                 topics_joined,
                 &self.mesh,
                 self.peer_topics.get(propagation_source),
-                &mut self.events,
                 &self.connected_peers,
             );
         }
@@ -1922,7 +2032,7 @@ where
 
         // Notify the application of the subscriptions
         for event in application_event {
-            self.events.push_back(event);
+            self.events.send(event);
         }
 
         tracing::trace!(
@@ -2448,7 +2558,6 @@ where
                     vec![topic],
                     &self.mesh,
                     self.peer_topics.get(&peer),
-                    &mut self.events,
                     &self.connected_peers,
                 );
             }
@@ -2572,8 +2681,7 @@ where
         }
     }
 
-    /// Constructs a [`RawMessage`] performing message signing if required.
-    pub(crate) fn build_raw_message(
+    fn build_raw_message(
         &mut self,
         topic: TopicHash,
         data: Vec<u8>,
@@ -3033,6 +3141,15 @@ where
     }
 }
 
+impl ProtocolHandler for Behaviour {
+    fn accept(
+        self: std::sync::Arc<Self>,
+        conn: Connecting,
+    ) -> futures::future::BoxFuture<'static, anyhow::Result<()>> {
+        Box::pin(async move { todo!() })
+    }
+}
+
 /// This is called when peers are added to any mesh. It checks if the peer existed
 /// in any other mesh. If this is the first mesh they have joined, it queues a message to notify
 /// the appropriate connection handler to maintain a connection.
@@ -3041,7 +3158,6 @@ fn peer_added_to_mesh(
     new_topics: Vec<&TopicHash>,
     mesh: &HashMap<TopicHash, BTreeSet<NodeId>>,
     known_topics: Option<&BTreeSet<TopicHash>>,
-    events: &mut VecDeque<Event>,
     connections: &HashMap<NodeId, PeerConnections>,
 ) {
     // Ensure there is an active connection
@@ -3189,39 +3305,6 @@ fn validate_config(
         _ => {}
     }
     Ok(())
-}
-
-impl<C: DataTransform, F: TopicSubscriptionFilter> fmt::Debug for Behaviour<C, F> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Behaviour")
-            .field("config", &self.config)
-            .field("events", &self.events.len())
-            .field("control_pool", &self.control_pool)
-            .field("publish_config", &self.publish_config)
-            .field("topic_peers", &self.topic_peers)
-            .field("peer_topics", &self.peer_topics)
-            .field("mesh", &self.mesh)
-            .field("fanout", &self.fanout)
-            .field("fanout_last_pub", &self.fanout_last_pub)
-            .field("mcache", &self.mcache)
-            .field("heartbeat", &self.heartbeat)
-            .finish()
-    }
-}
-
-impl fmt::Debug for PublishConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PublishConfig::Signing { author, .. } => {
-                f.write_fmt(format_args!("PublishConfig::Signing({author})"))
-            }
-            PublishConfig::Author(author) => {
-                f.write_fmt(format_args!("PublishConfig::Author({author})"))
-            }
-            PublishConfig::RandomAuthor => f.write_fmt(format_args!("PublishConfig::RandomAuthor")),
-            PublishConfig::Anonymous => f.write_fmt(format_args!("PublishConfig::Anonymous")),
-        }
-    }
 }
 
 #[cfg(test)]

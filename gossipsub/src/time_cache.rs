@@ -9,6 +9,7 @@ use std::collections::VecDeque;
 use std::time::Duration;
 use web_time::Instant;
 
+#[derive(Debug)]
 struct ExpiringElement<Element> {
     /// The element that expires
     element: Element,
@@ -16,6 +17,7 @@ struct ExpiringElement<Element> {
     expires: Instant,
 }
 
+#[derive(Debug)]
 pub(crate) struct TimeCache<Key, Value> {
     /// Mapping a key to its value together with its latest expire time (can be updated through
     /// reinserts).
@@ -135,6 +137,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct DuplicateCache<Key>(TimeCache<Key, ()>);
 
 impl<Key> DuplicateCache<Key>

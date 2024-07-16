@@ -93,6 +93,7 @@ mod types;
 pub use self::behaviour::{Behaviour, Event, MessageAuthenticity};
 pub use self::config::{Config, ConfigBuilder, ValidationMode, Version};
 pub use self::error::{ConfigBuilderError, PublishError, SubscriptionError, ValidationError};
+pub use self::protocol::GOSSIPSUB_1_1_0_PROTOCOL;
 // pub use self::metrics::Config as MetricsConfig;
 pub use self::peer_score::{
     score_parameter_decay, score_parameter_decay_with_base, PeerScoreParams, PeerScoreThresholds,
