@@ -1,21 +1,19 @@
-use crate::protocol::{GossipsubCodec, ProtocolConfig};
-use crate::rpc_proto::proto;
-use crate::types::{PeerKind, RawMessage, Rpc, RpcOut};
+use crate::protocol::{GossipFramed, GossipsubCodec, ProtocolConfig};
+use crate::types::{self, RawMessage, Rpc, RpcOut};
 use crate::ValidationError;
-use asynchronous_codec::Framed;
-use futures::future::Either;
-use futures::prelude::*;
-use futures::StreamExt;
+use serde::{Deserialize, Serialize};
+use tokio_util::codec::Framed;
+use iroh::net::endpoint::{RecvStream, SendStream};
 use smallvec::SmallVec;
-use std::{
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::pin::Pin;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use futures::{StreamExt, SinkExt};
+use tokio::sync::mpsc;
 use web_time::Instant;
 
 /// The event emitted by the Handler. This informs the behaviour of various events created
 /// by the handler.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum HandlerEvent {
     /// A GossipsubRPC message has been received. This also contains a list of invalid messages (if
     /// any) that were received.
@@ -26,9 +24,45 @@ pub enum HandlerEvent {
         /// validation error.
         invalid_messages: Vec<(RawMessage, ValidationError)>,
     },
-    /// An inbound or outbound substream has been established with the peer and this informs over
-    /// which protocol. This message only occurs once per connection.
-    PeerKind(PeerKind),
+}
+
+#[derive(Debug)]
+pub struct Stream {
+    send: SendStream,
+    recv: RecvStream,
+}
+
+impl AsyncWrite for Stream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.send).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.send).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        Pin::new(&mut self.send).poll_shutdown(cx)
+    }
+}
+
+impl AsyncRead for Stream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.recv).poll_read(cx, buf)
+    }
 }
 
 /// A message sent from the behaviour to the handler.
@@ -51,14 +85,11 @@ pub enum HandlerIn {
 /// creation loops.
 const MAX_SUBSTREAM_ATTEMPTS: usize = 5;
 
-#[allow(clippy::large_enum_variant)]
-pub enum Handler {
-    Enabled(EnabledHandler),
-    Disabled(DisabledHandler),
-}
-
 /// Protocol Handler that manages a single long-lived substream with a peer.
-pub struct EnabledHandler {
+pub struct Handler {
+    handler_sender: mpsc::Sender<HandlerEvent>,
+    handler_receiver: mpsc::Receiver<HandlerIn>,
+
     /// Upgrade configuration for the gossipsub protocol.
     listen_protocol: ProtocolConfig,
 
@@ -69,7 +100,7 @@ pub struct EnabledHandler {
     inbound_substream: Option<InboundSubstreamState>,
 
     /// Queue of values that we want to send to the remote.
-    send_queue: SmallVec<[proto::RPC; 16]>,
+    send_queue: SmallVec<[types::RpcOut; 16]>,
 
     /// Flag indicating that an outbound substream is being established to prevent duplicate
     /// requests.
@@ -81,14 +112,6 @@ pub struct EnabledHandler {
     /// The number of inbound substreams that have been created by the peer.
     inbound_substream_attempts: usize,
 
-    /// The type of peer this handler is associated to.
-    peer_kind: Option<PeerKind>,
-
-    /// Keeps track on whether we have sent the peer kind to the behaviour.
-    //
-    // NOTE: Use this flag rather than checking the substream count each poll.
-    peer_kind_sent: bool,
-
     last_io_activity: Instant,
 
     /// Keeps track of whether this connection is for a peer in the mesh. This is used to make
@@ -96,25 +119,12 @@ pub struct EnabledHandler {
     in_mesh: bool,
 }
 
-pub enum DisabledHandler {
-    /// If the peer doesn't support the gossipsub protocol we do not immediately disconnect.
-    /// Rather, we disable the handler and prevent any incoming or outgoing substreams from being
-    /// established.
-    ProtocolUnsupported {
-        /// Keeps track on whether we have sent the peer kind to the behaviour.
-        peer_kind_sent: bool,
-    },
-    /// The maximum number of inbound or outbound substream attempts have happened and thereby the
-    /// handler has been disabled.
-    MaxSubstreamAttempts,
-}
-
 /// State of the inbound substream, opened either by us or by the remote.
 enum InboundSubstreamState {
     /// Waiting for a message from the remote. The idle state for an inbound substream.
-    WaitingInput(Framed<Stream, GossipsubCodec>),
+    WaitingInput(GossipFramed<Stream>),
     /// The substream is being closed.
-    Closing(Framed<Stream, GossipsubCodec>),
+    Closing(GossipFramed<Stream>),
     /// An error occurred during processing.
     Poisoned,
 }
@@ -122,19 +132,25 @@ enum InboundSubstreamState {
 /// State of the outbound substream, opened either by us or by the remote.
 enum OutboundSubstreamState {
     /// Waiting for the user to send a message. The idle state for an outbound substream.
-    WaitingOutput(Framed<Stream, GossipsubCodec>),
+    WaitingOutput(GossipFramed<Stream>),
     /// Waiting to send a message to the remote.
-    PendingSend(Framed<Stream, GossipsubCodec>, proto::RPC),
+    PendingSend(GossipFramed<Stream>, types::RpcOut),
     /// Waiting to flush the substream so that the data arrives to the remote.
-    PendingFlush(Framed<Stream, GossipsubCodec>),
+    PendingFlush(GossipFramed<Stream>),
     /// An error occurred during processing.
     Poisoned,
 }
 
 impl Handler {
     /// Builds a new [`Handler`].
-    pub fn new(protocol_config: ProtocolConfig) -> Self {
-        Handler::Enabled(EnabledHandler {
+    pub fn new(
+        protocol_config: ProtocolConfig,
+        handler_sender: mpsc::Sender<HandlerEvent>,
+        handler_receiver: mpsc::Receiver<HandlerIn>,
+    ) -> Self {
+        Handler {
+            handler_sender,
+            handler_receiver,
             listen_protocol: protocol_config,
             inbound_substream: None,
             outbound_substream: None,
@@ -142,43 +158,18 @@ impl Handler {
             outbound_substream_attempts: 0,
             inbound_substream_attempts: 0,
             send_queue: SmallVec::new(),
-            peer_kind: None,
-            peer_kind_sent: false,
             last_io_activity: Instant::now(),
             in_mesh: false,
-        })
-    }
-}
-
-impl EnabledHandler {
-    fn on_fully_negotiated_inbound(
-        &mut self,
-        (substream, peer_kind): (Framed<Stream, GossipsubCodec>, PeerKind),
-    ) {
-        // update the known kind of peer
-        if self.peer_kind.is_none() {
-            self.peer_kind = Some(peer_kind);
         }
+    }
 
+    fn on_fully_negotiated_inbound(&mut self, substream: GossipFramed<Stream>) {
         // new inbound substream. Replace the current one, if it exists.
         tracing::trace!("New inbound substream request");
         self.inbound_substream = Some(InboundSubstreamState::WaitingInput(substream));
     }
 
-    fn on_fully_negotiated_outbound(
-        &mut self,
-        FullyNegotiatedOutbound { protocol, .. }: FullyNegotiatedOutbound<
-            <Handler as ConnectionHandler>::OutboundProtocol,
-            <Handler as ConnectionHandler>::OutboundOpenInfo,
-        >,
-    ) {
-        let (substream, peer_kind) = protocol;
-
-        // update the known kind of peer
-        if self.peer_kind.is_none() {
-            self.peer_kind = Some(peer_kind);
-        }
-
+    fn on_fully_negotiated_outbound(&mut self, substream: GossipFramed<Stream>) {
         assert!(
             self.outbound_substream.is_none(),
             "Established an outbound substream with one already available"
@@ -186,34 +177,19 @@ impl EnabledHandler {
         self.outbound_substream = Some(OutboundSubstreamState::WaitingOutput(substream));
     }
 
-    fn poll(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<
-        ConnectionHandlerEvent<
-            <Handler as ConnectionHandler>::OutboundProtocol,
-            <Handler as ConnectionHandler>::OutboundOpenInfo,
-            <Handler as ConnectionHandler>::ToBehaviour,
-        >,
-    > {
-        if !self.peer_kind_sent {
-            if let Some(peer_kind) = self.peer_kind.as_ref() {
-                self.peer_kind_sent = true;
-                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    HandlerEvent::PeerKind(peer_kind.clone()),
-                ));
-            }
-        }
+    async fn run(mut self) {
+        // TODO: use select!
 
-        // determine if we need to create the outbound stream
-        if !self.send_queue.is_empty()
-            && self.outbound_substream.is_none()
-            && !self.outbound_substream_establishing
-        {
-            self.outbound_substream_establishing = true;
-            return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest {
-                protocol: SubstreamProtocol::new(self.listen_protocol.clone(), ()),
-            });
+        if let Ok(event) = self.handler_receiver.try_recv() {
+            match event {
+                HandlerIn::Message(m) => self.send_queue.push(m),
+                HandlerIn::JoinedMesh => {
+                    self.in_mesh = true;
+                }
+                HandlerIn::LeftMesh => {
+                    self.in_mesh = false;
+                }
+            }
         }
 
         // process outbound stream
@@ -236,49 +212,28 @@ impl EnabledHandler {
                     break;
                 }
                 Some(OutboundSubstreamState::PendingSend(mut substream, message)) => {
-                    match Sink::poll_ready(Pin::new(&mut substream), cx) {
-                        Poll::Ready(Ok(())) => {
-                            match Sink::start_send(Pin::new(&mut substream), message) {
-                                Ok(()) => {
-                                    self.outbound_substream =
-                                        Some(OutboundSubstreamState::PendingFlush(substream))
-                                }
-                                Err(e) => {
-                                    tracing::debug!(
-                                        "Failed to send message on outbound stream: {e}"
-                                    );
-                                    self.outbound_substream = None;
-                                    break;
-                                }
-                            }
+                    match substream.send(message).await {
+                        Ok(()) => {
+                            self.outbound_substream =
+                                Some(OutboundSubstreamState::PendingFlush(substream))
                         }
-                        Poll::Ready(Err(e)) => {
+                        Err(e) => {
                             tracing::debug!("Failed to send message on outbound stream: {e}");
                             self.outbound_substream = None;
-                            break;
-                        }
-                        Poll::Pending => {
-                            self.outbound_substream =
-                                Some(OutboundSubstreamState::PendingSend(substream, message));
                             break;
                         }
                     }
                 }
                 Some(OutboundSubstreamState::PendingFlush(mut substream)) => {
-                    match Sink::poll_flush(Pin::new(&mut substream), cx) {
-                        Poll::Ready(Ok(())) => {
+                    match substream.flush().await {
+                        Ok(()) => {
                             self.last_io_activity = Instant::now();
                             self.outbound_substream =
                                 Some(OutboundSubstreamState::WaitingOutput(substream))
                         }
-                        Poll::Ready(Err(e)) => {
+                        Err(e) => {
                             tracing::debug!("Failed to flush outbound stream: {e}");
                             self.outbound_substream = None;
-                            break;
-                        }
-                        Poll::Pending => {
-                            self.outbound_substream =
-                                Some(OutboundSubstreamState::PendingFlush(substream));
                             break;
                         }
                     }
@@ -300,14 +255,15 @@ impl EnabledHandler {
             ) {
                 // inbound idle state
                 Some(InboundSubstreamState::WaitingInput(mut substream)) => {
-                    match substream.poll_next_unpin(cx) {
-                        Poll::Ready(Some(Ok(message))) => {
+                    match substream.next().await {
+                        Some(Ok(message)) => {
                             self.last_io_activity = Instant::now();
                             self.inbound_substream =
                                 Some(InboundSubstreamState::WaitingInput(substream));
-                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(message));
+                            self.handler_sender.send(message).await;
+                            break;
                         }
-                        Poll::Ready(Some(Err(error))) => {
+                        Some(Err(error)) => {
                             tracing::debug!("Failed to read from inbound stream: {error}");
                             // Close this side of the stream. If the
                             // peer is still around, they will re-establish their
@@ -316,36 +272,25 @@ impl EnabledHandler {
                                 Some(InboundSubstreamState::Closing(substream));
                         }
                         // peer closed the stream
-                        Poll::Ready(None) => {
+                        None => {
                             tracing::debug!("Inbound stream closed by remote");
                             self.inbound_substream =
                                 Some(InboundSubstreamState::Closing(substream));
                         }
-                        Poll::Pending => {
-                            self.inbound_substream =
-                                Some(InboundSubstreamState::WaitingInput(substream));
-                            break;
-                        }
                     }
                 }
                 Some(InboundSubstreamState::Closing(mut substream)) => {
-                    match Sink::poll_close(Pin::new(&mut substream), cx) {
-                        Poll::Ready(res) => {
-                            if let Err(e) = res {
-                                // Don't close the connection but just drop the inbound substream.
-                                // In case the remote has more to send, they will open up a new
-                                // substream.
-                                tracing::debug!("Inbound substream error while closing: {e}");
-                            }
-                            self.inbound_substream = None;
-                            break;
+                    match substream.close().await {
+                        Err(e) => {
+                            // Don't close the connection but just drop the inbound substream.
+                            // In case the remote has more to send, they will open up a new
+                            // substream.
+                            tracing::debug!("Inbound substream error while closing: {e}");
                         }
-                        Poll::Pending => {
-                            self.inbound_substream =
-                                Some(InboundSubstreamState::Closing(substream));
-                            break;
-                        }
+                        Ok(_) => {}
                     }
+                    self.inbound_substream = None;
+                    break;
                 }
                 None => {
                     self.inbound_substream = None;
@@ -355,155 +300,6 @@ impl EnabledHandler {
                     unreachable!("Error occurred during inbound stream processing")
                 }
             }
-        }
-
-        Poll::Pending
-    }
-}
-
-impl ConnectionHandler for Handler {
-    type FromBehaviour = HandlerIn;
-    type ToBehaviour = HandlerEvent;
-    type InboundOpenInfo = ();
-    type InboundProtocol = either::Either<ProtocolConfig, DeniedUpgrade>;
-    type OutboundOpenInfo = ();
-    type OutboundProtocol = ProtocolConfig;
-
-    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        match self {
-            Handler::Enabled(handler) => {
-                SubstreamProtocol::new(either::Either::Left(handler.listen_protocol.clone()), ())
-            }
-            Handler::Disabled(_) => {
-                SubstreamProtocol::new(either::Either::Right(DeniedUpgrade), ())
-            }
-        }
-    }
-
-    fn on_behaviour_event(&mut self, message: HandlerIn) {
-        match self {
-            Handler::Enabled(handler) => match message {
-                HandlerIn::Message(m) => handler.send_queue.push(m.into_protobuf()),
-                HandlerIn::JoinedMesh => {
-                    handler.in_mesh = true;
-                }
-                HandlerIn::LeftMesh => {
-                    handler.in_mesh = false;
-                }
-            },
-            Handler::Disabled(_) => {
-                tracing::debug!(?message, "Handler is disabled. Dropping message");
-            }
-        }
-    }
-
-    fn connection_keep_alive(&self) -> bool {
-        matches!(self, Handler::Enabled(h) if h.in_mesh)
-    }
-
-    #[tracing::instrument(level = "trace", name = "ConnectionHandler::poll", skip(self, cx))]
-    fn poll(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<
-        ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
-    > {
-        match self {
-            Handler::Enabled(handler) => handler.poll(cx),
-            Handler::Disabled(DisabledHandler::ProtocolUnsupported { peer_kind_sent }) => {
-                if !*peer_kind_sent {
-                    *peer_kind_sent = true;
-                    return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                        HandlerEvent::PeerKind(PeerKind::NotSupported),
-                    ));
-                }
-
-                Poll::Pending
-            }
-            Handler::Disabled(DisabledHandler::MaxSubstreamAttempts) => Poll::Pending,
-        }
-    }
-
-    fn on_connection_event(
-        &mut self,
-        event: ConnectionEvent<
-            Self::InboundProtocol,
-            Self::OutboundProtocol,
-            Self::InboundOpenInfo,
-            Self::OutboundOpenInfo,
-        >,
-    ) {
-        match self {
-            Handler::Enabled(handler) => {
-                if event.is_inbound() {
-                    handler.inbound_substream_attempts += 1;
-
-                    if handler.inbound_substream_attempts == MAX_SUBSTREAM_ATTEMPTS {
-                        tracing::warn!(
-                            "The maximum number of inbound substreams attempts has been exceeded"
-                        );
-                        *self = Handler::Disabled(DisabledHandler::MaxSubstreamAttempts);
-                        return;
-                    }
-                }
-
-                if event.is_outbound() {
-                    handler.outbound_substream_establishing = false;
-
-                    handler.outbound_substream_attempts += 1;
-
-                    if handler.outbound_substream_attempts == MAX_SUBSTREAM_ATTEMPTS {
-                        tracing::warn!(
-                            "The maximum number of outbound substream attempts has been exceeded"
-                        );
-                        *self = Handler::Disabled(DisabledHandler::MaxSubstreamAttempts);
-                        return;
-                    }
-                }
-
-                match event {
-                    ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
-                        protocol,
-                        ..
-                    }) => match protocol {
-                        Either::Left(protocol) => handler.on_fully_negotiated_inbound(protocol),
-                        Either::Right(v) => void::unreachable(v),
-                    },
-                    ConnectionEvent::FullyNegotiatedOutbound(fully_negotiated_outbound) => {
-                        handler.on_fully_negotiated_outbound(fully_negotiated_outbound)
-                    }
-                    ConnectionEvent::DialUpgradeError(DialUpgradeError {
-                        error: StreamUpgradeError::Timeout,
-                        ..
-                    }) => {
-                        tracing::debug!("Dial upgrade error: Protocol negotiation timeout");
-                    }
-                    ConnectionEvent::DialUpgradeError(DialUpgradeError {
-                        error: StreamUpgradeError::Apply(e),
-                        ..
-                    }) => void::unreachable(e),
-                    ConnectionEvent::DialUpgradeError(DialUpgradeError {
-                        error: StreamUpgradeError::NegotiationFailed,
-                        ..
-                    }) => {
-                        // The protocol is not supported
-                        tracing::debug!(
-                            "The remote peer does not support gossipsub on this connection"
-                        );
-                        *self = Handler::Disabled(DisabledHandler::ProtocolUnsupported {
-                            peer_kind_sent: false,
-                        });
-                    }
-                    ConnectionEvent::DialUpgradeError(DialUpgradeError {
-                        error: StreamUpgradeError::Io(e),
-                        ..
-                    }) => {
-                        tracing::debug!("Protocol negotiation failed: {e}")
-                    }
-                    _ => {}
-                }
-            }
-            Handler::Disabled(_) => {}
         }
     }
 }

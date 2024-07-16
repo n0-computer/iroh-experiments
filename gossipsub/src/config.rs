@@ -1,10 +1,12 @@
-use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 
+use iroh::net::key::SecretKey;
+use iroh::net::NodeId;
+
 use crate::error::ConfigBuilderError;
-use crate::protocol::{ProtocolConfig, ProtocolId, FLOODSUB_PROTOCOL};
-use crate::types::{Message, MessageId, PeerKind};
+use crate::protocol::{ProtocolConfig};
+use crate::types::{Message, MessageId};
 
 /// The types of message validation that can be employed by gossipsub.
 #[derive(Debug, Clone)]
@@ -318,11 +320,6 @@ impl Config {
         self.iwant_followup_time
     }
 
-    /// Enable support for flooodsub peers. Default false.
-    pub fn support_floodsub(&self) -> bool {
-        self.protocol.protocol_ids.contains(&FLOODSUB_PROTOCOL)
-    }
-
     /// Published message ids time cache duration. The default is 10 seconds.
     pub fn published_message_ids_cache_time(&self) -> Duration {
         self.published_message_ids_cache_time
@@ -367,11 +364,9 @@ impl Default for ConfigBuilder {
                     // default message id is: source + sequence number
                     // NOTE: If either the peer_id or source is not provided, we set to 0;
                     let mut source_string = if let Some(peer_id) = message.source.as_ref() {
-                        peer_id.to_base58()
+                        peer_id.to_string()
                     } else {
-                        PeerId::from_bytes(&[0, 1, 0])
-                            .expect("Valid peer id")
-                            .to_base58()
+                        SecretKey::from_bytes(&[1u8; 32]).public().to_string()
                     };
                     source_string
                         .push_str(&message.sequence_number.unwrap_or_default().to_string());
@@ -410,63 +405,6 @@ impl From<Config> for ConfigBuilder {
 }
 
 impl ConfigBuilder {
-    /// The protocol id prefix to negotiate this protocol (default is `/meshsub/1.1.0` and `/meshsub/1.0.0`).
-    pub fn protocol_id_prefix(
-        &mut self,
-        protocol_id_prefix: impl Into<Cow<'static, str>>,
-    ) -> &mut Self {
-        let cow = protocol_id_prefix.into();
-
-        match (
-            StreamProtocol::try_from_owned(format!("{}/1.1.0", cow)),
-            StreamProtocol::try_from_owned(format!("{}/1.0.0", cow)),
-        ) {
-            (Ok(p1), Ok(p2)) => {
-                self.config.protocol.protocol_ids = vec![
-                    ProtocolId {
-                        protocol: p1,
-                        kind: PeerKind::Gossipsubv1_1,
-                    },
-                    ProtocolId {
-                        protocol: p2,
-                        kind: PeerKind::Gossipsub,
-                    },
-                ]
-            }
-            _ => {
-                self.invalid_protocol = true;
-            }
-        }
-
-        self
-    }
-
-    /// The full protocol id to negotiate this protocol (does not append `/1.0.0` or `/1.1.0`).
-    pub fn protocol_id(
-        &mut self,
-        protocol_id: impl Into<Cow<'static, str>>,
-        custom_id_version: Version,
-    ) -> &mut Self {
-        let cow = protocol_id.into();
-
-        match StreamProtocol::try_from_owned(cow.to_string()) {
-            Ok(protocol) => {
-                self.config.protocol.protocol_ids = vec![ProtocolId {
-                    protocol,
-                    kind: match custom_id_version {
-                        Version::V1_1 => PeerKind::Gossipsubv1_1,
-                        Version::V1_0 => PeerKind::Gossipsub,
-                    },
-                }]
-            }
-            _ => {
-                self.invalid_protocol = true;
-            }
-        }
-
-        self
-    }
-
     /// Number of heartbeats to keep in the `memcache` (default is 5).
     pub fn history_length(&mut self, history_length: usize) -> &mut Self {
         self.config.history_length = history_length;
@@ -735,22 +673,6 @@ impl ConfigBuilder {
         self
     }
 
-    /// Enable support for flooodsub peers.
-    pub fn support_floodsub(&mut self) -> &mut Self {
-        if self
-            .config
-            .protocol
-            .protocol_ids
-            .contains(&FLOODSUB_PROTOCOL)
-        {
-            return self;
-        }
-
-        self.config.protocol.protocol_ids.push(FLOODSUB_PROTOCOL);
-        self
-    }
-
-    /// Published message ids time cache duration. The default is 10 seconds.
     pub fn published_message_ids_cache_time(
         &mut self,
         published_message_ids_cache_time: Duration,
@@ -889,47 +811,6 @@ mod test {
         let result = config.message_id(&get_gossipsub_message());
 
         assert_eq!(result, get_expected_message_id());
-    }
-
-    #[test]
-    fn create_config_with_protocol_id_prefix() {
-        let protocol_config = ConfigBuilder::default()
-            .protocol_id_prefix("/purple")
-            .build()
-            .unwrap()
-            .protocol_config();
-
-        let protocol_ids = protocol_config.protocol_info();
-
-        assert_eq!(protocol_ids.len(), 2);
-
-        assert_eq!(
-            protocol_ids[0].protocol,
-            StreamProtocol::new("/purple/1.1.0")
-        );
-        assert_eq!(protocol_ids[0].kind, PeerKind::Gossipsubv1_1);
-
-        assert_eq!(
-            protocol_ids[1].protocol,
-            StreamProtocol::new("/purple/1.0.0")
-        );
-        assert_eq!(protocol_ids[1].kind, PeerKind::Gossipsub);
-    }
-
-    #[test]
-    fn create_config_with_custom_protocol_id() {
-        let protocol_config = ConfigBuilder::default()
-            .protocol_id("/purple", Version::V1_0)
-            .build()
-            .unwrap()
-            .protocol_config();
-
-        let protocol_ids = protocol_config.protocol_info();
-
-        assert_eq!(protocol_ids.len(), 1);
-
-        assert_eq!(protocol_ids[0].protocol, "/purple");
-        assert_eq!(protocol_ids[0].kind, PeerKind::Gossipsub);
     }
 
     fn get_gossipsub_message() -> Message {

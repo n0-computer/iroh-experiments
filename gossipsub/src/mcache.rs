@@ -1,3 +1,5 @@
+use iroh::net::NodeId;
+
 use crate::topic::TopicHash;
 use crate::types::{MessageId, RawMessage};
 use std::collections::hash_map::Entry;
@@ -17,9 +19,9 @@ pub(crate) struct CacheEntry {
 /// MessageCache struct holding history of messages.
 #[derive(Clone)]
 pub(crate) struct MessageCache {
-    msgs: HashMap<MessageId, (RawMessage, HashSet<PeerId>)>,
+    msgs: HashMap<MessageId, (RawMessage, HashSet<NodeId>)>,
     /// For every message and peer the number of times this peer asked for the message
-    iwant_counts: HashMap<MessageId, HashMap<PeerId, u32>>,
+    iwant_counts: HashMap<MessageId, HashMap<NodeId, u32>>,
     history: Vec<Vec<CacheEntry>>,
     /// The number of indices in the cache history used for gossiping. That means that a message
     /// won't get gossiped anymore when shift got called `gossip` many times after inserting the
@@ -72,7 +74,7 @@ impl MessageCache {
     }
 
     /// Keeps track of peers we know have received the message to prevent forwarding to said peers.
-    pub(crate) fn observe_duplicate(&mut self, message_id: &MessageId, source: &PeerId) {
+    pub(crate) fn observe_duplicate(&mut self, message_id: &MessageId, source: &NodeId) {
         if let Some((message, originating_peers)) = self.msgs.get_mut(message_id) {
             // if the message is already validated, we don't need to store extra peers sending us
             // duplicates as the message has already been forwarded
@@ -95,7 +97,7 @@ impl MessageCache {
     pub(crate) fn get_with_iwant_counts(
         &mut self,
         message_id: &MessageId,
-        peer: &PeerId,
+        peer: &NodeId,
     ) -> Option<(&RawMessage, u32)> {
         let iwant_counts = &mut self.iwant_counts;
         self.msgs.get(message_id).and_then(|(message, _)| {
@@ -121,7 +123,7 @@ impl MessageCache {
     pub(crate) fn validate(
         &mut self,
         message_id: &MessageId,
-    ) -> Option<(&RawMessage, HashSet<PeerId>)> {
+    ) -> Option<(&RawMessage, HashSet<NodeId>)> {
         self.msgs.get_mut(message_id).map(|(message, known_peers)| {
             message.validated = true;
             // Clear the known peers list (after a message is validated, it is forwarded and we no
@@ -188,7 +190,7 @@ impl MessageCache {
     pub(crate) fn remove(
         &mut self,
         message_id: &MessageId,
-    ) -> Option<(RawMessage, HashSet<PeerId>)> {
+    ) -> Option<(RawMessage, HashSet<NodeId>)> {
         //We only remove the message from msgs and iwant_count and keep the message_id in the
         // history vector. Zhe id in the history vector will simply be ignored on popping.
 
@@ -210,7 +212,7 @@ mod tests {
             MessageId::from(source_string)
         };
         let u8x: u8 = x as u8;
-        let source = Some(PeerId::random());
+        let source = Some(NodeId::random());
         let data: Vec<u8> = vec![u8x];
         let sequence_number = Some(x);
 

@@ -1,7 +1,7 @@
-use crate::rpc_proto::proto;
 use base64::prelude::*;
-// use prometheus_client::encoding::EncodeLabelSet;
+use prometheus_client::encoding::EncodeLabelSet;
 use quick_protobuf::Writer;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
@@ -44,7 +44,7 @@ impl Hasher for Sha256Hash {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, EncodeLabelSet, Serialize, Deserialize)]
 pub struct TopicHash {
     /// The topic hash. Stored as a string to align with the protobuf API.
     hash: String,

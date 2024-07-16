@@ -1,5 +1,7 @@
 //! Error types that can result from gossipsub.
 
+use serde::{Deserialize, Serialize};
+
 /// Error associated with publishing a gossipsub message.
 #[derive(Debug)]
 pub enum PublishError {
@@ -23,7 +25,6 @@ impl std::fmt::Display for PublishError {
 impl std::error::Error for PublishError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::SigningError(err) => Some(err),
             Self::TransformFailed(err) => Some(err),
             _ => None,
         }
@@ -54,13 +55,7 @@ impl std::error::Error for SubscriptionError {
     }
 }
 
-impl From<SigningError> for PublishError {
-    fn from(error: SigningError) -> Self {
-        PublishError::SigningError(error)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum ValidationError {
     /// The message has an invalid signature,
     InvalidSignature,
@@ -68,8 +63,8 @@ pub enum ValidationError {
     EmptySequenceNumber,
     /// The sequence number was the incorrect size
     InvalidSequenceNumber,
-    /// The PeerId was invalid
-    InvalidPeerId,
+    /// The NodeId was invalid
+    InvalidNodeId,
     /// Signature existed when validation has been sent to
     /// [`crate::behaviour::MessageAuthenticity::Anonymous`].
     SignaturePresent,

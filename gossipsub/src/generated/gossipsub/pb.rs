@@ -98,7 +98,7 @@ impl MessageWrite for SubOpts {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Message {
-    pub from: Option<Vec<u8>>,
+    pub from: Option<[u8; 32]>,
     pub data: Option<Vec<u8>>,
     pub seqno: Option<Vec<u8>>,
     pub topic: String,
@@ -564,4 +564,3 @@ impl<'a> From<&'a str> for EncMode {
 }
 
 }
-
