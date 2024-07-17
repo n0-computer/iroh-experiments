@@ -407,7 +407,11 @@ mod tests {
                 .map(|_| u8::arbitrary(g))
                 .collect::<Vec<_>>();
             let topic_id = TopicId::arbitrary(g).0;
-            Message(gs.build_raw_message(topic_id, data).unwrap())
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let msg = rt.block_on(async {
+                gs.build_raw_message(topic_id, data).await.unwrap()
+            });
+            Message(msg)
         }
     }
 

@@ -1,9 +1,7 @@
 use std::{
     cmp::{max, Ordering},
     collections::{BTreeSet, HashMap, HashSet},
-    fmt,
     net::IpAddr,
-    sync::Arc,
     time::Duration,
 };
 
@@ -19,7 +17,10 @@ use iroh::{
 };
 use rand::{seq::SliceRandom, thread_rng};
 
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinHandle,
+};
 use web_time::{Instant, SystemTime};
 
 use crate::gossip_promises::GossipPromises;
@@ -265,7 +266,7 @@ impl Behaviour {
 
         let (s, r) = mpsc::channel(128);
         let task = tokio::task::spawn(async move {
-            inner.run().await;
+            inner.run(r).await;
         });
 
         Ok(Behaviour { sender: s, task })
@@ -273,30 +274,38 @@ impl Behaviour {
 
     /// Connect to another node, running gossip.
     pub async fn connect(&self, node_addr: NodeAddr) -> anyhow::Result<()> {
-        todo!()
+        let (s, r) = oneshot::channel();
+        self.sender
+            .send(ActorMessage::Connect {
+                node_addr,
+                response: s,
+            })
+            .await?;
+        let res = r.await?;
+        res
     }
 
     /// Lists the hashes of the topics we are currently subscribed to.
-    pub fn topics(&self) -> Vec<TopicHash> {
+    pub async fn topics(&self) -> Vec<TopicHash> {
         todo!()
     }
 
     /// Lists all mesh peers for a certain topic hash.
-    pub fn mesh_peers(&self, topic_hash: TopicHash) -> Vec<NodeId> {
+    pub async fn mesh_peers(&self, topic_hash: TopicHash) -> Vec<NodeId> {
         todo!()
     }
 
-    pub fn all_mesh_peers(&self) -> Vec<NodeId> {
+    pub async fn all_mesh_peers(&self) -> Vec<NodeId> {
         todo!()
     }
 
     /// Lists all known peers and their associated subscribed topics.
-    pub fn all_peers(&self) -> Vec<(NodeId, Vec<TopicHash>)> {
+    pub async fn all_peers(&self) -> Vec<(NodeId, Vec<TopicHash>)> {
         todo!()
     }
 
     /// Returns the gossipsub score for a given peer, if one exists.
-    pub fn peer_score(&self, peer_id: &NodeId) -> Option<f64> {
+    pub async fn peer_score(&self, peer_id: NodeId) -> Option<f64> {
         todo!()
     }
 
@@ -304,24 +313,24 @@ impl Behaviour {
     ///
     /// Returns [`Ok(true)`] if the subscription worked. Returns [`Ok(false)`] if we were already
     /// subscribed.
-    pub fn subscribe<H: Hasher>(&self, topic: &Topic<H>) -> Result<bool, SubscriptionError> {
+    pub async fn subscribe<H: Hasher>(&self, topic: Topic<H>) -> Result<bool, SubscriptionError> {
         todo!()
     }
 
     /// Subscribe to events
-    pub fn subscribe_events(&self) -> Option<mpsc::Receiver<Event>> {
+    pub async fn subscribe_events(&self) -> Option<mpsc::Receiver<Event>> {
         todo!()
     }
 
     /// Unsubscribes from a topic.
     ///
     /// Returns [`Ok(true)`] if we were subscribed to this topic.
-    pub fn unsubscribe<H: Hasher>(&self, topic: &Topic<H>) -> Result<bool, PublishError> {
+    pub async fn unsubscribe<H: Hasher>(&self, topic: Topic<H>) -> Result<bool, PublishError> {
         todo!()
     }
 
     /// Publishes a message with multiple topics to the network.
-    pub fn publish(
+    pub async fn publish(
         &self,
         topic: impl Into<TopicHash>,
         data: impl Into<Vec<u8>>,
@@ -348,41 +357,41 @@ impl Behaviour {
     /// in the cache anymore.
     ///
     /// This should only be called once per message.
-    pub fn report_message_validation_result(
+    pub async fn report_message_validation_result(
         &self,
-        msg_id: &MessageId,
-        propagation_source: &NodeId,
+        msg_id: MessageId,
+        propagation_source: NodeId,
         acceptance: MessageAcceptance,
     ) -> Result<bool, PublishError> {
         todo!()
     }
 
     /// Adds a new peer to the list of explicitly connected peers.
-    pub fn add_explicit_peer(&self, peer_id: &NodeId) {
+    pub async fn add_explicit_peer(&self, peer_id: NodeId) {
         todo!()
     }
 
     /// This removes the peer from explicitly connected peers, note that this does not disconnect
     /// the peer.
-    pub fn remove_explicit_peer(&self, peer_id: &NodeId) {
+    pub async fn remove_explicit_peer(&self, peer_id: NodeId) {
         todo!()
     }
 
     /// Blacklists a peer. All messages from this peer will be rejected and any message that was
     /// created by this peer will be rejected.
-    pub fn blacklist_peer(&self, peer_id: &NodeId) {
+    pub async fn blacklist_peer(&self, peer_id: NodeId) {
         todo!()
     }
 
     /// Removes a peer from the blacklist if it has previously been blacklisted.
-    pub fn remove_blacklisted_peer(&self, peer_id: &NodeId) {
+    pub async fn remove_blacklisted_peer(&self, peer_id: NodeId) {
         todo!()
     }
 
     /// Sets scoring parameters for a topic.
     ///
     /// The [`Self::with_peer_score()`] must first be called to initialise peer scoring.
-    pub fn set_topic_params<H: Hasher>(
+    pub async fn set_topic_params<H: Hasher>(
         &self,
         topic: Topic<H>,
         params: TopicScoreParams,
@@ -391,18 +400,18 @@ impl Behaviour {
     }
 
     /// Returns a scoring parameters for a topic if existent.
-    pub fn get_topic_params<H: Hasher>(&self, topic: &Topic<H>) -> Option<&TopicScoreParams> {
+    pub async fn get_topic_params<H: Hasher>(&self, topic: Topic<H>) -> Option<&TopicScoreParams> {
         todo!()
     }
 
     /// Sets the application specific score for a peer. Returns true if scoring is active and
     /// the peer is connected or if the score of the peer is not yet expired, false otherwise.
-    pub fn set_application_score(&self, peer_id: &NodeId, new_score: f64) -> bool {
+    pub async fn set_application_score(&self, peer_id: NodeId, new_score: f64) -> bool {
         todo!()
     }
 
     /// Constructs a [`RawMessage`] performing message signing if required.
-    pub(crate) fn build_raw_message(
+    pub(crate) async fn build_raw_message(
         &self,
         topic: TopicHash,
         data: Vec<u8>,
@@ -412,7 +421,12 @@ impl Behaviour {
 }
 
 #[derive(Debug)]
-enum ActorMessage {}
+enum ActorMessage {
+    Connect {
+        node_addr: NodeAddr,
+        response: oneshot::Sender<anyhow::Result<()>>,
+    },
+}
 
 #[derive(Debug)]
 struct BehaviourInner<D = IdentityTransform, F = AllowAllSubscriptionFilter> {
@@ -574,7 +588,7 @@ where
     }
 
     /// Connect to another node, running gossip.
-    async fn connect(&self, node_addr: NodeAddr) -> anyhow::Result<()> {
+    fn connect(&self, node_addr: NodeAddr) -> anyhow::Result<()> {
         todo!()
     }
 
@@ -975,7 +989,7 @@ where
     }
 
     /// Gossipsub JOIN(topic) - adds topic peers to mesh and sends them GRAFT messages.
-    fn join(&mut self, topic_hash: &TopicHash) {
+    async fn join(&mut self, topic_hash: &TopicHash) {
         tracing::debug!(topic=%topic_hash, "Running JOIN for topic");
 
         // if we are already in the mesh, return
@@ -1083,7 +1097,8 @@ where
                 &self.mesh,
                 self.peer_topics.get(&peer_id),
                 &self.connected_peers,
-            );
+            )
+            .await;
         }
 
         let mesh_peers = self.mesh_peers(topic_hash).count();
@@ -1140,7 +1155,7 @@ where
     }
 
     /// Gossipsub LEAVE(topic) - Notifies mesh\[topic\] peers with PRUNE messages.
-    fn leave(&mut self, topic_hash: &TopicHash) {
+    async fn leave(&mut self, topic_hash: &TopicHash) {
         tracing::debug!(topic=%topic_hash, "Running LEAVE for topic");
 
         // If our mesh contains the topic, send prune to peers and delete it from the mesh
@@ -1164,7 +1179,8 @@ where
                     &self.mesh,
                     self.peer_topics.get(&peer),
                     &self.connected_peers,
-                );
+                )
+                .await;
             }
         }
         tracing::debug!(topic=%topic_hash, "Completed LEAVE for topic");
@@ -1340,7 +1356,7 @@ where
 
     /// Handles an IWANT control message. Checks our cache of messages. If the message exists it is
     /// forwarded to the requesting peer.
-    fn handle_iwant(&mut self, peer_id: &NodeId, iwant_msgs: Vec<MessageId>) {
+    async fn handle_iwant(&mut self, peer_id: &NodeId, iwant_msgs: Vec<MessageId>) {
         // We ignore IWANT gossip from any peer whose score is below the gossip threshold
         if let (true, score) = self.score_below_threshold(peer_id, |pst| pst.gossip_threshold) {
             tracing::debug!(
@@ -1369,7 +1385,7 @@ where
                     );
                 } else {
                     tracing::debug!(peer=%peer_id, "IWANT: Sending cached messages to peer");
-                    self.send_message(*peer_id, RpcOut::Forward(msg));
+                    self.send_message(*peer_id, RpcOut::Forward(msg)).await;
                 }
             }
         }
@@ -1378,7 +1394,7 @@ where
 
     /// Handles GRAFT control messages. If subscribed to the topic, adds the peer to mesh, if not,
     /// responds with PRUNE messages.
-    fn handle_graft(&mut self, peer_id: &NodeId, topics: Vec<TopicHash>) {
+    async fn handle_graft(&mut self, peer_id: &NodeId, topics: Vec<TopicHash>) {
         tracing::debug!(peer=%peer_id, "Handling GRAFT message for peer");
 
         let mut to_prune_topics = HashSet::new();
@@ -1501,7 +1517,8 @@ where
                         &self.mesh,
                         self.peer_topics.get(peer_id),
                         &self.connected_peers,
-                    );
+                    )
+                    .await;
 
                     if let Some((peer_score, ..)) = &mut self.peer_score {
                         peer_score.graft(peer_id, topic_hash);
@@ -1539,7 +1556,7 @@ where
         tracing::debug!(peer=%peer_id, "Completed GRAFT handling for peer");
     }
 
-    fn remove_peer_from_mesh(
+    async fn remove_peer_from_mesh(
         &mut self,
         peer_id: &NodeId,
         topic_hash: &TopicHash,
@@ -1574,7 +1591,8 @@ where
                     &self.mesh,
                     self.peer_topics.get(peer_id),
                     &self.connected_peers,
-                );
+                )
+                .await;
             }
         }
         if update_backoff {
@@ -1589,7 +1607,7 @@ where
     }
 
     /// Handles PRUNE control messages. Removes peer from the mesh.
-    fn handle_prune(
+    async fn handle_prune(
         &mut self,
         peer_id: &NodeId,
         prune_data: Vec<(TopicHash, Vec<PeerInfo>, Option<u64>)>,
@@ -1598,7 +1616,8 @@ where
         let (below_threshold, score) =
             self.score_below_threshold(peer_id, |pst| pst.accept_px_threshold);
         for (topic_hash, px, backoff) in prune_data {
-            self.remove_peer_from_mesh(peer_id, &topic_hash, backoff, true, Churn::Prune);
+            self.remove_peer_from_mesh(peer_id, &topic_hash, backoff, true, Churn::Prune)
+                .await;
 
             if self.mesh.contains_key(&topic_hash) {
                 //connect to px peers
@@ -1740,7 +1759,7 @@ where
     /// Handles a newly received [`RawMessage`].
     ///
     /// Forwards the message to all peers in the mesh.
-    fn handle_received_message(
+    async fn handle_received_message(
         &mut self,
         mut raw_message: RawMessage,
         propagation_source: &NodeId,
@@ -1808,11 +1827,13 @@ where
         // Dispatch the message to the user if we are subscribed to any of the topics
         if self.mesh.contains_key(&message.topic) {
             tracing::debug!("Sending received message to user");
-            self.events.send(Event::Message {
-                propagation_source: *propagation_source,
-                message_id: msg_id.clone(),
-                message,
-            });
+            self.events
+                .send(Event::Message {
+                    propagation_source: *propagation_source,
+                    message_id: msg_id.clone(),
+                    message,
+                })
+                .await;
         } else {
             tracing::debug!(
                 topic=%message.topic,
@@ -1872,7 +1893,7 @@ where
     }
 
     /// Handles received subscriptions.
-    fn handle_received_subscriptions(
+    async fn handle_received_subscriptions(
         &mut self,
         subscriptions: &[Subscription],
         propagation_source: &NodeId,
@@ -2017,7 +2038,8 @@ where
                 &self.mesh,
                 self.peer_topics.get(propagation_source),
                 &self.connected_peers,
-            );
+            )
+            .await;
         }
 
         // If we need to send grafts to peer, do so immediately, rather than waiting for the
@@ -2028,11 +2050,12 @@ where
             .collect::<Vec<_>>()
         {
             self.send_message(*propagation_source, RpcOut::Control(action))
+                .await;
         }
 
         // Notify the application of the subscriptions
         for event in application_event {
-            self.events.send(event);
+            self.events.send(event).await;
         }
 
         tracing::trace!(
@@ -2537,7 +2560,7 @@ where
 
     /// Handles multiple GRAFT/PRUNE messages and coalesces them into chunked gossip control
     /// messages.
-    fn send_graft_prune(
+    async fn send_graft_prune(
         &mut self,
         to_graft: HashMap<NodeId, Vec<TopicHash>>,
         mut to_prune: HashMap<NodeId, Vec<TopicHash>>,
@@ -2559,7 +2582,8 @@ where
                     &self.mesh,
                     self.peer_topics.get(&peer),
                     &self.connected_peers,
-                );
+                )
+                .await;
             }
             let control_msgs = topics.iter().map(|topic_hash| ControlAction::Graft {
                 topic_hash: topic_hash.clone(),
@@ -2609,7 +2633,8 @@ where
                     &self.mesh,
                     self.peer_topics.get(peer),
                     &self.connected_peers,
-                );
+                )
+                .await;
             }
         }
     }
@@ -2784,7 +2809,7 @@ where
 
     /// Send a [`RpcOut`] message to a peer. This will wrap the message in an arc if it
     /// is not already an arc.
-    fn send_message(&mut self, peer_id: NodeId, rpc: RpcOut) {
+    async fn send_message(&mut self, peer_id: NodeId, rpc: RpcOut) {
         // TODO:
         // if let Some(m) = self.metrics.as_mut() {
         //     if let RpcOut::Publish(ref message) | RpcOut::Forward(ref message) = rpc {
@@ -2794,13 +2819,13 @@ where
         // }
 
         if let Some(conn) = self.connected_peers.get(&peer_id) {
-            conn.connection_sender.send(HandlerIn::Message(rpc));
+            conn.connection_sender.send(HandlerIn::Message(rpc)).await;
         } else {
             // TODO: handle unknown peer
         }
     }
 
-    fn accept_connection(&mut self, peer_id: NodeId, endpoint: Connection, is_dialer: bool) {
+    async fn accept_connection(&mut self, peer_id: NodeId, endpoint: Connection, is_dialer: bool) {
         // TODO: track
         let other_established = 0;
 
@@ -2865,11 +2890,12 @@ where
         tracing::debug!(peer=%peer_id, "New peer connected");
         // We need to send our subscriptions to the newly-connected node.
         for topic_hash in self.mesh.clone().into_keys() {
-            self.send_message(peer_id, RpcOut::Subscribe(topic_hash));
+            self.send_message(peer_id, RpcOut::Subscribe(topic_hash))
+                .await;
         }
     }
 
-    fn on_connection_closed(&mut self, peer_id: NodeId, connection_id: usize, ip: IpAddr) {
+    async fn on_connection_closed(&mut self, peer_id: NodeId, connection_id: usize, ip: IpAddr) {
         // TODO: actually track
         let remaining_established = 0;
 
@@ -2896,7 +2922,10 @@ where
                             if let Some(mesh_peers) = self.mesh.get(topic) {
                                 if mesh_peers.contains(&peer_id) {
                                     // TODO: await
-                                    connections.connection_sender.send(HandlerIn::JoinedMesh);
+                                    connections
+                                        .connection_sender
+                                        .send(HandlerIn::JoinedMesh)
+                                        .await;
                                     // TODO: multiple connections?
                                     // handler: NotifyHandler::One(connections.connections[0]),
                                     break;
@@ -3016,7 +3045,7 @@ where
     //     }
     // }
 
-    fn on_handler_event(&mut self, propagation_source: NodeId, event: HandlerEvent) {
+    async fn on_handler_event(&mut self, propagation_source: NodeId, event: HandlerEvent) {
         match event {
             HandlerEvent::Message {
                 rpc,
@@ -3027,7 +3056,8 @@ where
                 // Handle subscriptions
                 // Update connected peers topics
                 if !rpc.subscriptions.is_empty() {
-                    self.handle_received_subscriptions(&rpc.subscriptions, &propagation_source);
+                    self.handle_received_subscriptions(&rpc.subscriptions, &propagation_source)
+                        .await;
                 }
 
                 // Check if peer is graylisted in which case we ignore the event
@@ -3068,7 +3098,8 @@ where
                         tracing::warn!("Received more messages than permitted. Ignoring further messages. Processed: {}", count);
                         break;
                     }
-                    self.handle_received_message(raw_message, &propagation_source);
+                    self.handle_received_message(raw_message, &propagation_source)
+                        .await;
                 }
 
                 // Handle control messages
@@ -3085,7 +3116,7 @@ where
                             ihave_msgs.push((topic_hash, message_ids));
                         }
                         ControlAction::IWant { message_ids } => {
-                            self.handle_iwant(&propagation_source, message_ids)
+                            self.handle_iwant(&propagation_source, message_ids).await;
                         }
                         ControlAction::Graft { topic_hash } => graft_msgs.push(topic_hash),
                         ControlAction::Prune {
@@ -3099,16 +3130,16 @@ where
                     self.handle_ihave(&propagation_source, ihave_msgs);
                 }
                 if !graft_msgs.is_empty() {
-                    self.handle_graft(&propagation_source, graft_msgs);
+                    self.handle_graft(&propagation_source, graft_msgs).await;
                 }
                 if !prune_msgs.is_empty() {
-                    self.handle_prune(&propagation_source, prune_msgs);
+                    self.handle_prune(&propagation_source, prune_msgs).await;
                 }
             }
         }
     }
 
-    async fn run(mut self) {
+    async fn run(mut self, mut receiver: mpsc::Receiver<ActorMessage>) {
         // TODO: handle events from handler
         // if let Some(event) = self.events.pop_front() {
         //     return Poll::Ready(event);
@@ -3128,6 +3159,15 @@ where
 
         loop {
             tokio::select! {
+                biased;
+                Some(msg) = receiver.recv() => {
+                    match msg {
+                        ActorMessage::Connect { node_addr, response } => {
+                            let res = self.connect(node_addr);
+                            response.send(res).ok();
+                        }
+                    }
+                }
                 // update scores
                 Some(peer_score) = peer_score_interval(&mut self.peer_score) => {
                     peer_score.refresh_scores();
@@ -3153,7 +3193,7 @@ impl ProtocolHandler for Behaviour {
 /// This is called when peers are added to any mesh. It checks if the peer existed
 /// in any other mesh. If this is the first mesh they have joined, it queues a message to notify
 /// the appropriate connection handler to maintain a connection.
-fn peer_added_to_mesh(
+async fn peer_added_to_mesh(
     peer_id: NodeId,
     new_topics: Vec<&TopicHash>,
     mesh: &HashMap<TopicHash, BTreeSet<NodeId>>,
@@ -3186,7 +3226,7 @@ fn peer_added_to_mesh(
     if let Some(conn) = connections.get(&peer_id) {
         // TODO: handle multiple connections
         // NotifyHandler::One(connection_id),
-        conn.connection_sender.send(HandlerIn::JoinedMesh); // TODO: await
+        conn.connection_sender.send(HandlerIn::JoinedMesh).await;
     } else {
         // TODO: handle unknown peer
     }
@@ -3195,7 +3235,7 @@ fn peer_added_to_mesh(
 /// This is called when peers are removed from a mesh. It checks if the peer exists
 /// in any other mesh. If this is the last mesh they have joined, we return true, in order to
 /// notify the handler to no longer maintain a connection.
-fn peer_removed_from_mesh(
+async fn peer_removed_from_mesh(
     peer_id: NodeId,
     old_topic: &TopicHash,
     mesh: &HashMap<TopicHash, BTreeSet<NodeId>>,
@@ -3226,7 +3266,7 @@ fn peer_removed_from_mesh(
     if let Some(conn) = connections.get(&peer_id) {
         // TODO: handle multiple connections
         // NotifyHandler::One(connection_id),
-        conn.connection_sender.send(HandlerIn::LeftMesh); // TODO: await
+        conn.connection_sender.send(HandlerIn::LeftMesh).await;
     } else {
         // TODO: handle unknown peer
     }

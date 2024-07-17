@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iroh::net::key::SecretKey;
-use iroh::net::NodeId;
 
 use crate::error::ConfigBuilderError;
 use crate::protocol::ProtocolConfig;

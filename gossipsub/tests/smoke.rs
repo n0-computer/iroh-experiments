@@ -103,7 +103,7 @@ async fn build_node() -> (iroh::node::MemNode, ReceiverStream<gossipsub::Event>)
 
     let gossip: gossipsub::Behaviour =
         gossipsub::Behaviour::new(MessageAuthenticity::Author(node_id), config).unwrap();
-    let sub = ReceiverStream::new(gossip.subscribe_events().unwrap());
+    let sub = ReceiverStream::new(gossip.subscribe_events().await.unwrap());
     let gossip = Arc::new(gossip);
     let node = builder
         .accept(GOSSIPSUB_1_1_0_PROTOCOL, gossip.clone())
@@ -136,7 +136,8 @@ fn multi_hop_propagation() {
             for node in &mut graph.nodes {
                 node.get_protocol::<gossipsub::Behaviour>(GOSSIPSUB_1_1_0_PROTOCOL)
                     .unwrap()
-                    .subscribe(&topic)
+                    .subscribe(topic.clone())
+                    .await
                     .unwrap();
             }
 
@@ -175,6 +176,7 @@ fn multi_hop_propagation() {
                 .get_protocol::<gossipsub::Behaviour>(GOSSIPSUB_1_1_0_PROTOCOL)
                 .unwrap()
                 .publish(topic, vec![1, 2, 3])
+                .await
                 .unwrap();
 
             // Wait for all nodes to receive the published message.
