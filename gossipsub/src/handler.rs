@@ -1,5 +1,5 @@
 use crate::protocol::{GossipFramed, ProtocolConfig};
-use crate::types::{self, RawMessage, Rpc, RpcOut};
+use crate::types::{self, RawMessage};
 use crate::ValidationError;
 use futures::{SinkExt, StreamExt};
 use iroh::net::endpoint::{RecvStream, SendStream};
@@ -18,7 +18,7 @@ pub enum HandlerEvent {
     /// any) that were received.
     Message {
         /// The GossipsubRPC message excluding any invalid messages.
-        rpc: Rpc,
+        rpc: types::Rpc,
         /// Any invalid messages that were received in the RPC, along with the associated
         /// validation error.
         invalid_messages: Vec<(RawMessage, ValidationError)>,
@@ -69,7 +69,7 @@ impl AsyncRead for Stream {
 #[derive(Debug)]
 pub enum HandlerIn {
     /// A gossipsub message to send.
-    Message(RpcOut),
+    Message(types::RpcOut),
     /// The peer has joined the mesh.
     JoinedMesh,
     /// The peer has left the mesh.
@@ -99,7 +99,7 @@ pub struct Handler {
     inbound_substream: Option<InboundSubstreamState>,
 
     /// Queue of values that we want to send to the remote.
-    send_queue: SmallVec<[types::RpcOut; 16]>,
+    send_queue: SmallVec<[types::Rpc; 16]>,
 
     /// Flag indicating that an outbound substream is being established to prevent duplicate
     /// requests.
@@ -133,7 +133,7 @@ enum OutboundSubstreamState {
     /// Waiting for the user to send a message. The idle state for an outbound substream.
     WaitingOutput(GossipFramed<Stream>),
     /// Waiting to send a message to the remote.
-    PendingSend(GossipFramed<Stream>, types::RpcOut),
+    PendingSend(GossipFramed<Stream>, types::Rpc),
     /// Waiting to flush the substream so that the data arrives to the remote.
     PendingFlush(GossipFramed<Stream>),
     /// An error occurred during processing.
@@ -181,7 +181,7 @@ impl Handler {
 
         if let Ok(event) = self.handler_receiver.try_recv() {
             match event {
-                HandlerIn::Message(m) => self.send_queue.push(m),
+                HandlerIn::Message(m) => self.send_queue.push(m.into()),
                 HandlerIn::JoinedMesh => {
                     self.in_mesh = true;
                 }

@@ -190,6 +190,44 @@ pub enum RpcOut {
     Control(ControlAction),
 }
 
+impl From<RpcOut> for Rpc {
+    fn from(rpc: RpcOut) -> Self {
+        match rpc {
+            RpcOut::Publish(message) => Rpc {
+                subscriptions: Vec::new(),
+                messages: vec![message],
+                control_msgs: Vec::new(),
+            },
+            RpcOut::Forward(message) => Rpc {
+                messages: vec![message],
+                subscriptions: Vec::new(),
+                control_msgs: Vec::new(),
+            },
+            RpcOut::Subscribe(topic) => Rpc {
+                messages: Vec::new(),
+                subscriptions: vec![Subscription {
+                    action: SubscriptionAction::Subscribe,
+                    topic_hash: topic,
+                }],
+                control_msgs: Vec::new(),
+            },
+            RpcOut::Unsubscribe(topic) => Rpc {
+                messages: Vec::new(),
+                subscriptions: vec![Subscription {
+                    action: SubscriptionAction::Unsubscribe,
+                    topic_hash: topic,
+                }],
+                control_msgs: Vec::new(),
+            },
+            RpcOut::Control(action) => Rpc {
+                messages: Vec::new(),
+                subscriptions: Vec::new(),
+                control_msgs: vec![action],
+            },
+        }
+    }
+}
+
 /// An RPC received/sent.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Rpc {

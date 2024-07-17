@@ -1,18 +1,14 @@
 use crate::config::ValidationMode;
 use crate::handler::HandlerEvent;
-use crate::topic::TopicHash;
-use crate::types::{
-    self, ControlAction, MessageId, PeerInfo, RawMessage, Rpc, Subscription, SubscriptionAction,
-};
+use crate::types::{self, RawMessage, Rpc};
 use crate::ValidationError;
 use bytes::{BufMut, Bytes, BytesMut};
 use iroh::net::key::Signature;
-use iroh::net::NodeId;
 use std::io;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_serde::{Deserializer, Serializer};
-use tokio_util::codec::{Decoder, Encoder, Framed};
+use tokio_util::codec::Framed;
 
 pub(crate) const SIGNING_PREFIX: &[u8] = b"libp2p-pubsub:";
 pub const GOSSIPSUB_1_1_0_PROTOCOL: &[u8] = b"/meshsub/1.1.0";
@@ -41,7 +37,7 @@ impl Default for ProtocolConfig {
 pub type GossipFramed<T> = tokio_serde::Framed<
     tokio_util::codec::Framed<T, tokio_util::codec::LengthDelimitedCodec>,
     HandlerEvent,
-    types::RpcOut,
+    types::Rpc,
     GossipsubCodec,
 >;
 
@@ -100,10 +96,10 @@ impl GossipsubCodec {
     }
 }
 
-impl Serializer<types::RpcOut> for GossipsubCodec {
+impl Serializer<types::Rpc> for GossipsubCodec {
     type Error = io::Error;
 
-    fn serialize(self: Pin<&mut Self>, data: &types::RpcOut) -> Result<Bytes, Self::Error> {
+    fn serialize(self: Pin<&mut Self>, data: &types::Rpc) -> Result<Bytes, Self::Error> {
         postcard::experimental::serialized_size(data)
             .and_then(|size| postcard::to_io(data, BytesMut::with_capacity(size).writer()))
             .map(|writer| writer.into_inner().freeze())
@@ -115,271 +111,149 @@ impl Deserializer<HandlerEvent> for GossipsubCodec {
     type Error = std::io::Error;
 
     fn deserialize(self: Pin<&mut Self>, src: &BytesMut) -> Result<HandlerEvent, Self::Error> {
-        let rpc: types::RpcOut = postcard::from_bytes(&src)
+        let rpc: types::Rpc = postcard::from_bytes(&src)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
 
-        todo!()
-        // // Store valid messages.
-        // let mut messages = Vec::with_capacity(rpc.publish.len());
-        // // Store any invalid messages.
-        // let mut invalid_messages = Vec::new();
+        // Store valid messages.
+        let mut messages = Vec::with_capacity(rpc.messages.len());
+        // Store any invalid messages.
+        let mut invalid_messages = Vec::new();
 
-        // for message in rpc.publish.into_iter() {
-        //     // Keep track of the type of invalid message.
-        //     let mut invalid_kind = None;
-        //     let mut verify_signature = false;
-        //     let mut verify_sequence_no = false;
-        //     let mut verify_source = false;
+        for message in rpc.messages.into_iter() {
+            // Keep track of the type of invalid message.
+            let mut invalid_kind = None;
+            let mut verify_signature = false;
+            let mut verify_sequence_no = false;
+            let mut verify_source = false;
 
-        //     match self.validation_mode {
-        //         ValidationMode::Strict => {
-        //             // Validate everything
-        //             verify_signature = true;
-        //             verify_sequence_no = true;
-        //             verify_source = true;
-        //         }
-        //         ValidationMode::Permissive => {
-        //             // If the fields exist, validate them
-        //             if message.signature.is_some() {
-        //                 verify_signature = true;
-        //             }
-        //             if message.seqno.is_some() {
-        //                 verify_sequence_no = true;
-        //             }
-        //             if message.from.is_some() {
-        //                 verify_source = true;
-        //             }
-        //         }
-        //         ValidationMode::Anonymous => {
-        //             if message.signature.is_some() {
-        //                 tracing::warn!(
-        //                     "Signature field was non-empty and anonymous validation mode is set"
-        //                 );
-        //                 invalid_kind = Some(ValidationError::SignaturePresent);
-        //             } else if message.seqno.is_some() {
-        //                 tracing::warn!(
-        //                     "Sequence number was non-empty and anonymous validation mode is set"
-        //                 );
-        //                 invalid_kind = Some(ValidationError::SequenceNumberPresent);
-        //             } else if message.from.is_some() {
-        //                 tracing::warn!("Message dropped. Message source was non-empty and anonymous validation mode is set");
-        //                 invalid_kind = Some(ValidationError::MessageSourcePresent);
-        //             }
-        //         }
-        //         ValidationMode::None => {}
-        //     }
+            match self.validation_mode {
+                ValidationMode::Strict => {
+                    // Validate everything
+                    verify_signature = true;
+                    verify_sequence_no = true;
+                    verify_source = true;
+                }
+                ValidationMode::Permissive => {
+                    // If the fields exist, validate them
+                    if message.signature.is_some() {
+                        verify_signature = true;
+                    }
+                    if message.sequence_number.is_some() {
+                        verify_sequence_no = true;
+                    }
+                    if message.source.is_some() {
+                        verify_source = true;
+                    }
+                }
+                ValidationMode::Anonymous => {
+                    if message.signature.is_some() {
+                        tracing::warn!(
+                            "Signature field was non-empty and anonymous validation mode is set"
+                        );
+                        invalid_kind = Some(ValidationError::SignaturePresent);
+                    } else if message.sequence_number.is_some() {
+                        tracing::warn!(
+                            "Sequence number was non-empty and anonymous validation mode is set"
+                        );
+                        invalid_kind = Some(ValidationError::SequenceNumberPresent);
+                    } else if message.source.is_some() {
+                        tracing::warn!("Message dropped. Message source was non-empty and anonymous validation mode is set");
+                        invalid_kind = Some(ValidationError::MessageSourcePresent);
+                    }
+                }
+                ValidationMode::None => {}
+            }
 
-        //     // If the initial validation logic failed, add the message to invalid messages and
-        //     // continue processing the others.
-        //     if let Some(validation_error) = invalid_kind.take() {
-        //         let message = RawMessage {
-        //             source: None, // don't bother inform the application
-        //             data: message.data.unwrap_or_default(),
-        //             sequence_number: None, // don't inform the application
-        //             topic: TopicHash::from_raw(message.topic),
-        //             signature: None, // don't inform the application
-        //             validated: false,
-        //         };
-        //         invalid_messages.push((message, validation_error));
-        //         // proceed to the next message
-        //         continue;
-        //     }
+            // If the initial validation logic failed, add the message to invalid messages and
+            // continue processing the others.
+            if let Some(validation_error) = invalid_kind.take() {
+                let message = RawMessage {
+                    source: None, // don't bother inform the application
+                    data: message.data,
+                    sequence_number: None, // don't inform the application
+                    topic: message.topic,
+                    signature: None, // don't inform the application
+                    validated: false,
+                };
+                invalid_messages.push((message, validation_error));
+                // proceed to the next message
+                continue;
+            }
 
-        //     // verify message signatures if required
-        //     if verify_signature && !GossipsubCodec::verify_signature(&message) {
-        //         tracing::warn!("Invalid signature for received message");
+            // verify message signatures if required
+            if verify_signature && !GossipsubCodec::verify_signature(&message) {
+                tracing::warn!("Invalid signature for received message");
 
-        //         // Build the invalid message (ignoring further validation of sequence number
-        //         // and source)
-        //         let message = RawMessage {
-        //             source: None, // don't bother inform the application
-        //             data: message.data.unwrap_or_default(),
-        //             sequence_number: None, // don't inform the application
-        //             topic: TopicHash::from_raw(message.topic),
-        //             signature: None, // don't inform the application
-        //             validated: false,
-        //         };
-        //         invalid_messages.push((message, ValidationError::InvalidSignature));
-        //         // proceed to the next message
-        //         continue;
-        //     }
+                // Build the invalid message (ignoring further validation of sequence number
+                // and source)
+                let message = RawMessage {
+                    source: None, // don't bother inform the application
+                    data: message.data,
+                    sequence_number: None, // don't inform the application
+                    topic: message.topic,
+                    signature: None, // don't inform the application
+                    validated: false,
+                };
+                invalid_messages.push((message, ValidationError::InvalidSignature));
+                // proceed to the next message
+                continue;
+            }
 
-        //     // ensure the sequence number is a u64
-        //     let sequence_number = if verify_sequence_no {
-        //         if let Some(seq_no) = message.seqno {
-        //             if seq_no.is_empty() {
-        //                 None
-        //             } else if seq_no.len() != 8 {
-        //                 tracing::debug!(
-        //                     sequence_number=?seq_no,
-        //                     sequence_length=%seq_no.len(),
-        //                     "Invalid sequence number length for received message"
-        //                 );
-        //                 let message = RawMessage {
-        //                     source: None, // don't bother inform the application
-        //                     data: message.data.unwrap_or_default(),
-        //                     sequence_number: None, // don't inform the application
-        //                     topic: TopicHash::from_raw(message.topic),
-        //                     signature: message.signature, // don't inform the application
-        //                     validated: false,
-        //                 };
-        //                 invalid_messages.push((message, ValidationError::InvalidSequenceNumber));
-        //                 // proceed to the next message
-        //                 continue;
-        //             } else {
-        //                 // valid sequence number
-        //                 Some(BigEndian::read_u64(&seq_no))
-        //             }
-        //         } else {
-        //             // sequence number was not present
-        //             tracing::debug!("Sequence number not present but expected");
-        //             let message = RawMessage {
-        //                 source: None, // don't bother inform the application
-        //                 data: message.data.unwrap_or_default(),
-        //                 sequence_number: None, // don't inform the application
-        //                 topic: TopicHash::from_raw(message.topic),
-        //                 signature: message.signature, // don't inform the application
-        //                 validated: false,
-        //             };
-        //             invalid_messages.push((message, ValidationError::EmptySequenceNumber));
-        //             continue;
-        //         }
-        //     } else {
-        //         // Do not verify the sequence number, consider it empty
-        //         None
-        //     };
+            // ensure the sequence number is a u64
+            let sequence_number = if verify_sequence_no {
+                if let Some(seq_no) = message.sequence_number {
+                    // valid sequence number
+                    Some(seq_no)
+                } else {
+                    // sequence number was not present
+                    tracing::debug!("Sequence number not present but expected");
+                    let message = RawMessage {
+                        source: None, // don't bother inform the application
+                        data: message.data,
+                        sequence_number: None, // don't inform the application
+                        topic: message.topic,
+                        signature: message.signature, // don't inform the application
+                        validated: false,
+                    };
+                    invalid_messages.push((message, ValidationError::EmptySequenceNumber));
+                    continue;
+                }
+            } else {
+                // Do not verify the sequence number, consider it empty
+                None
+            };
 
-        //     // Verify the message source if required
-        //     let source = if verify_source {
-        //         if let Some(bytes) = message.from {
-        //             if !bytes.is_empty() {
-        //                 match NodeId::from_bytes(&bytes) {
-        //                     Ok(peer_id) => Some(peer_id), // valid peer id
-        //                     Err(_) => {
-        //                         // invalid peer id, add to invalid messages
-        //                         tracing::debug!("Message source has an invalid NodeId");
-        //                         let message = RawMessage {
-        //                             source: None, // don't bother inform the application
-        //                             data: message.data.unwrap_or_default(),
-        //                             sequence_number,
-        //                             topic: TopicHash::from_raw(message.topic),
-        //                             signature: message.signature, // don't inform the application
-        //                             validated: false,
-        //                         };
-        //                         invalid_messages.push((message, ValidationError::InvalidNodeId));
-        //                         continue;
-        //                     }
-        //                 }
-        //             } else {
-        //                 None
-        //             }
-        //         } else {
-        //             None
-        //         }
-        //     } else {
-        //         None
-        //     };
+            // Verify the message source if required
+            let source = if verify_source {
+                if let Some(peer_id) = message.source {
+                    // valid peer id
+                    Some(peer_id)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
-        //     // This message has passed all validation, add it to the validated messages.
-        //     messages.push(RawMessage {
-        //         source,
-        //         data: message.data.unwrap_or_default(),
-        //         sequence_number,
-        //         topic: TopicHash::from_raw(message.topic),
-        //         signature: message.signature,
-        //         validated: false,
-        //     });
-        // }
+            // This message has passed all validation, add it to the validated messages.
+            messages.push(RawMessage {
+                source,
+                data: message.data,
+                sequence_number,
+                topic: message.topic,
+                signature: message.signature,
+                validated: false,
+            });
+        }
 
-        // let mut control_msgs = Vec::new();
-
-        // if let Some(rpc_control) = rpc.control {
-        //     // Collect the gossipsub control messages
-        //     let ihave_msgs: Vec<ControlAction> = rpc_control
-        //         .ihave
-        //         .into_iter()
-        //         .map(|ihave| ControlAction::IHave {
-        //             topic_hash: TopicHash::from_raw(ihave.topic_id.unwrap_or_default()),
-        //             message_ids: ihave
-        //                 .message_ids
-        //                 .into_iter()
-        //                 .map(MessageId::from)
-        //                 .collect::<Vec<_>>(),
-        //         })
-        //         .collect();
-
-        //     let iwant_msgs: Vec<ControlAction> = rpc_control
-        //         .iwant
-        //         .into_iter()
-        //         .map(|iwant| ControlAction::IWant {
-        //             message_ids: iwant
-        //                 .message_ids
-        //                 .into_iter()
-        //                 .map(MessageId::from)
-        //                 .collect::<Vec<_>>(),
-        //         })
-        //         .collect();
-
-        //     let graft_msgs: Vec<ControlAction> = rpc_control
-        //         .graft
-        //         .into_iter()
-        //         .map(|graft| ControlAction::Graft {
-        //             topic_hash: TopicHash::from_raw(graft.topic_id.unwrap_or_default()),
-        //         })
-        //         .collect();
-
-        //     let mut prune_msgs = Vec::new();
-
-        //     for prune in rpc_control.prune {
-        //         // filter out invalid peers
-        //         let peers = prune
-        //             .peers
-        //             .into_iter()
-        //             .filter_map(|info| {
-        //                 info.peer_id
-        //                     .as_ref()
-        //                     .and_then(|id| NodeId::from_bytes(id).ok())
-        //                     .map(|peer_id|
-        //                             //TODO signedPeerRecord, see https://github.com/libp2p/specs/pull/217
-        //                             PeerInfo {
-        //                                 peer_id: Some(peer_id),
-        //                             })
-        //             })
-        //             .collect::<Vec<PeerInfo>>();
-
-        //         let topic_hash = TopicHash::from_raw(prune.topic_id.unwrap_or_default());
-        //         prune_msgs.push(ControlAction::Prune {
-        //             topic_hash,
-        //             peers,
-        //             backoff: prune.backoff,
-        //         });
-        //     }
-
-        //     control_msgs.extend(ihave_msgs);
-        //     control_msgs.extend(iwant_msgs);
-        //     control_msgs.extend(graft_msgs);
-        //     control_msgs.extend(prune_msgs);
-        // }
-
-        // Ok(Some(HandlerEvent::Message {
-        //     rpc: Rpc {
-        //         messages,
-        //         subscriptions: rpc
-        //             .subscriptions
-        //             .into_iter()
-        //             .map(|sub| Subscription {
-        //                 action: if Some(true) == sub.subscribe {
-        //                     SubscriptionAction::Subscribe
-        //                 } else {
-        //                     SubscriptionAction::Unsubscribe
-        //                 },
-        //                 topic_hash: TopicHash::from_raw(sub.topic_id.unwrap_or_default()),
-        //             })
-        //             .collect(),
-        //         control_msgs,
-        //     },
-        //     invalid_messages,
-        // }))
+        Ok(HandlerEvent::Message {
+            rpc: Rpc {
+                messages,
+                subscriptions: rpc.subscriptions,
+                control_msgs: rpc.control_msgs,
+            },
+            invalid_messages,
+        })
     }
 }
 
@@ -387,7 +261,7 @@ impl Deserializer<HandlerEvent> for GossipsubCodec {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::{Behaviour, ConfigBuilder};
+    use crate::{Behaviour, ConfigBuilder, TopicHash};
     use crate::{IdentTopic as Topic, Version};
     use iroh::net::key::SecretKey;
     use quickcheck::*;
@@ -408,9 +282,7 @@ mod tests {
                 .collect::<Vec<_>>();
             let topic_id = TopicId::arbitrary(g).0;
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let msg = rt.block_on(async {
-                gs.build_raw_message(topic_id, data).await.unwrap()
-            });
+            let msg = rt.block_on(async { gs.build_raw_message(topic_id, data).await.unwrap() });
             Message(msg)
         }
     }
