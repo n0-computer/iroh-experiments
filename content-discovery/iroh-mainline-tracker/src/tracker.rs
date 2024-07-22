@@ -1197,7 +1197,7 @@ impl Tracker {
         let res = self
             .0
             .endpoint
-            .connect_by_node_id(&host, iroh_blobs::protocol::ALPN)
+            .connect_by_node_id(host, iroh_blobs::protocol::ALPN)
             .await;
         log_connection_attempt(&self.0.options.dial_log, &host, t0, &res)?;
         let connection = match res {

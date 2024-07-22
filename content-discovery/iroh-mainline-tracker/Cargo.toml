@@ -20,7 +20,7 @@ hex = "0.4.3"
 humantime = "2.1.0"
 iroh-net = { workspace = true }
 iroh-blobs = { workspace = true }
-iroh-pkarr-node-discovery = { version = "0.4.0", default-features = false }
+iroh-pkarr-node-discovery = { git = "https://github.com/n0-computer/iroh-examples", branch = "update-for-release-others", default-features = false }
 mainline = { version = "2.0.0", features = ["async"] }
 pkarr = { version = "1.0.1", features = ["async"] }
 postcard = { version = "1", default-features = false, features = ["alloc", "use-std"] }

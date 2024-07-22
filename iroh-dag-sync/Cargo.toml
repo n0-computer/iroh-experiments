@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iroh-blobs = "0.20.0"
-iroh-net = "0.20.0"
+iroh-blobs = { git = "https://github.com/n0-computer/iroh.git", rev = "b4506b2c4a288434ea55c36607f8fd839d58bf10" }
+iroh-gossip = { git = "https://github.com/n0-computer/iroh.git", rev = "b4506b2c4a288434ea55c36607f8fd839d58bf10" }
+iroh-net = { git = "https://github.com/n0-computer/iroh.git", rev = "b4506b2c4a288434ea55c36607f8fd839d58bf10" }
 iroh-car = "0.4.0"
 libipld = "0.16.0"
 redb = "2.1.1"
 clap = { version = "4.5.7", features = ["derive"] }
 tracing-subscriber = "0.3.18"
 anyhow = "1.0.86"
-iroh-gossip = "0.20.0"
 tokio = { version = "1.38.0", features = ["full"] }
 postcard = "1.0.8"
 serde = "1.0.203"

@@ -16,7 +16,7 @@ use futures::{
 };
 use iroh_blobs::HashAndFormat;
 use iroh_net::{
-    discovery::{dns::DnsDiscovery, pkarr_publish::PkarrPublisher, Discovery},
+    discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, Discovery},
     Endpoint, NodeId,
 };
 
@@ -86,7 +86,7 @@ async fn query_socket_one(
 
 async fn query_iroh_one(
     endpoint: Endpoint,
-    node_id: &NodeId,
+    node_id: NodeId,
     args: Query,
 ) -> anyhow::Result<Vec<SignedAnnounce>> {
     let connection = endpoint.connect_by_node_id(node_id, ALPN).await?;
@@ -119,7 +119,7 @@ pub fn query_trackers(
         .map(move |tracker| {
             let endpoint = endpoint.clone();
             async move {
-                let hosts = match query_iroh_one(endpoint, &tracker, args).await {
+                let hosts = match query_iroh_one(endpoint, tracker, args).await {
                     Ok(hosts) => hosts.into_iter().map(anyhow::Ok).collect(),
                     Err(cause) => vec![Err(cause)],
                 };
@@ -283,14 +283,14 @@ pub async fn connect(
 ) -> anyhow::Result<iroh_net::endpoint::Connection> {
     match tracker {
         TrackerId::Quinn(tracker) => connect_socket(*tracker, local_port).await,
-        TrackerId::Iroh(tracker) => connect_iroh(tracker, local_port).await,
+        TrackerId::Iroh(tracker) => connect_iroh(*tracker, local_port).await,
         TrackerId::Udp(_) => anyhow::bail!("can not connect to udp tracker"),
     }
 }
 
 /// Create a iroh endpoint and connect to a tracker using the [crate::protocol::ALPN] protocol.
 async fn connect_iroh(
-    tracker: &NodeId,
+    tracker: NodeId,
     local_port: u16,
 ) -> anyhow::Result<iroh_net::endpoint::Connection> {
     // todo: uncomment once the connection problems are fixed

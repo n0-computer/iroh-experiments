@@ -4,6 +4,7 @@ use indicatif::{
     HumanBytes, HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle,
 };
 use iroh::base::ticket::BlobTicket;
+use iroh::blobs::util::local_pool::LocalPool;
 use iroh::blobs::{
     provider::{self, handle_connection, EventSender},
     BlobFormat,
@@ -18,7 +19,6 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio_util::task::LocalPoolHandle;
 use url::Url;
 
 /// Send a file or directory between two machines, using blake3 verified streaming.
@@ -235,7 +235,7 @@ async fn serve_db(
     // make a ticket
     let addr = endpoint.node_addr().await?;
     on_addr(addr)?;
-    let rt = LocalPoolHandle::new(1);
+    let lp = LocalPool::single();
     let ps = SendStatus::new();
     loop {
         let Some(connecting) = endpoint.accept().await else {
@@ -243,10 +243,10 @@ async fn serve_db(
             break;
         };
         let db = db.clone();
-        let rt = rt.clone();
+        let lph = lp.handle().clone();
         let ps = ps.clone();
         let conn = connecting.await?;
-        tokio::spawn(handle_connection(conn, db, ps.new_client(), rt));
+        tokio::spawn(handle_connection(conn, db, ps.new_client(), lph));
     }
     Ok(())
 }
