@@ -26,6 +26,6 @@ missing_debug_implementations = "warn"
 unused-async = "warn"
 
 [workspace.dependencies]
-iroh-net = { git = "https://github.com/n0-computer/iroh.git", rev = "b4506b2c4a288434ea55c36607f8fd839d58bf10" }
-iroh-blobs = { git = "https://github.com/n0-computer/iroh.git", rev = "b4506b2c4a288434ea55c36607f8fd839d58bf10" }
-iroh-base = { git = "https://github.com/n0-computer/iroh.git", rev = "b4506b2c4a288434ea55c36607f8fd839d58bf10" }
+iroh-net = "0.21"
+iroh-blobs = "0.21"
+iroh-base = "0.21"

@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iroh-blobs = { git = "https://github.com/n0-computer/iroh.git", rev = "b4506b2c4a288434ea55c36607f8fd839d58bf10" }
-iroh-gossip = { git = "https://github.com/n0-computer/iroh.git", rev = "b4506b2c4a288434ea55c36607f8fd839d58bf10" }
-iroh-net = { git = "https://github.com/n0-computer/iroh.git", rev = "b4506b2c4a288434ea55c36607f8fd839d58bf10" }
+iroh-blobs = "0.21"
+iroh-gossip = "0.21"
+iroh-net = "0.21"
 iroh-car = "0.4.0"
 libipld = "0.16.0"
 redb = "2.1.1"
