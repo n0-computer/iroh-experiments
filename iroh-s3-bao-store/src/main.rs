@@ -6,7 +6,7 @@ use indicatif::{
 use iroh::base::ticket::BlobTicket;
 use iroh::blobs::util::local_pool::LocalPool;
 use iroh::blobs::{
-    provider::{self, handle_connection, EventSender},
+    provider::{self, handle_connection, CustomEventSender, EventSender},
     BlobFormat,
 };
 use iroh::net::{key::SecretKey, Endpoint, NodeAddr};
@@ -173,8 +173,13 @@ impl Drop for ClientStatus {
     }
 }
 
-impl EventSender for ClientStatus {
+impl CustomEventSender for ClientStatus {
     fn send(&self, event: iroh::blobs::provider::Event) -> futures_lite::future::Boxed<()> {
+        self.try_send(event);
+        Box::pin(std::future::ready(()))
+    }
+
+    fn try_send(&self, event: iroh::blobs::provider::Event) {
         tracing::info!("{:?}", event);
         let msg = match event {
             provider::Event::ClientConnected { connection_id } => {
@@ -211,7 +216,6 @@ impl EventSender for ClientStatus {
         if let Some(msg) = msg {
             self.current.set_message(msg);
         }
-        Box::pin(std::future::ready(()))
     }
 }
 
@@ -237,6 +241,7 @@ async fn serve_db(
     on_addr(addr)?;
     let lp = LocalPool::single();
     let ps = SendStatus::new();
+    let sc = Arc::new(ps.new_client());
     loop {
         let Some(connecting) = endpoint.accept().await else {
             tracing::info!("no more incoming connections, exiting");
@@ -244,9 +249,9 @@ async fn serve_db(
         };
         let db = db.clone();
         let lph = lp.handle().clone();
-        let ps = ps.clone();
+        let sc = sc.clone();
         let conn = connecting.await?;
-        tokio::spawn(handle_connection(conn, db, ps.new_client(), lph));
+        tokio::spawn(handle_connection(conn, db, EventSender::new(Some(sc)), lph));
     }
     Ok(())
 }

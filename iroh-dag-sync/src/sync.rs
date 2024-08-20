@@ -2,7 +2,7 @@ use anyhow::Context;
 use bao_tree::{io::outboard::EmptyOutboard, BaoTree, ChunkRanges};
 use iroh_blobs::{
     protocol::RangeSpec,
-    provider::send_blob,
+    provider::{send_blob, EventSender},
     store::{fs::Store, Store as _},
     BlobFormat, IROH_BLOCK_SIZE,
 };
@@ -77,8 +77,24 @@ where
             send.0
                 .write_all(&SyncResponseHeader::Data(hash).as_bytes())
                 .await?;
-            send_blob::<iroh_blobs::store::fs::Store, _>(blobs, hash, &RangeSpec::all(), &mut send)
-                .await?;
+
+            // TODO(ramfox): not exactly sure what this should be
+            // Would be nice to have this be optional, or to have an empty Event
+            let mk_progress = |end_offset| iroh_blobs::provider::Event::TransferProgress {
+                connection_id: 0,
+                request_id: 0,
+                hash,
+                end_offset,
+            };
+            send_blob::<iroh_blobs::store::fs::Store, _>(
+                blobs,
+                hash,
+                &RangeSpec::all(),
+                &mut send,
+                EventSender::new(None),
+                mk_progress,
+            )
+            .await?;
         } else {
             send.0
                 .write_all(&SyncResponseHeader::Hash(hash).as_bytes())

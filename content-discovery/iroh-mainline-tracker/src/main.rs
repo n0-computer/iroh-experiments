@@ -20,8 +20,10 @@ use iroh_mainline_tracker::{
     options::Options,
     tracker::Tracker,
 };
-use iroh_net::{endpoint::get_remote_node_id, Endpoint, NodeId};
-use iroh_pkarr_node_discovery::PkarrNodeDiscovery;
+use iroh_net::{
+    discovery::pkarr::dht::DhtDiscovery, endpoint::get_remote_node_id, Endpoint, NodeId,
+};
+
 use tokio::io::AsyncWriteExt;
 
 use crate::args::Args;
@@ -69,11 +71,9 @@ async fn create_endpoint(
     publish: bool,
 ) -> anyhow::Result<Endpoint> {
     let mainline_discovery = if publish {
-        PkarrNodeDiscovery::builder()
-            .secret_key(key.clone())
-            .build()?
+        DhtDiscovery::builder().secret_key(key.clone()).build()?
     } else {
-        PkarrNodeDiscovery::default()
+        DhtDiscovery::default()
     };
     iroh_net::Endpoint::builder()
         .secret_key(key)
