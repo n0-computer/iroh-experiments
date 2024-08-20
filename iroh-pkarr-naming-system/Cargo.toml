@@ -8,15 +8,10 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.79"
 derive_more = "0.99.17"
-iroh = "0.22"
-iroh-blobs = "0.22"
-iroh-net = "0.22"
+iroh = "0.23"
+iroh-blobs = "0.23"
+iroh-net = "0.23"
 pkarr = { version = "1.0.1", features = ["async", "dht"] }
 tokio = "1.35.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[patch.crates-io]
-iroh-blobs = { git = "https://github.com/n0-computer/iroh", branch = "main" }
-iroh = { git = "https://github.com/n0-computer/iroh", branch = "main" }
-iroh-net = { git = "https://github.com/n0-computer/iroh", branch = "main" }
