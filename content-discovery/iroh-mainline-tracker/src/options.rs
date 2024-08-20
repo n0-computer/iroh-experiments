@@ -112,9 +112,11 @@ impl Options {
 
     /// Make the paths in the options relative to the given base path.
     pub fn make_paths_relative(&mut self, base: &Path) {
+        #[allow(clippy::needless_borrows_for_generic_args)]
         if let Some(path) = &mut self.dial_log {
             *path = base.join(&path);
         }
+        #[allow(clippy::needless_borrows_for_generic_args)]
         if let Some(path) = &mut self.probe_log {
             *path = base.join(&path);
         }
