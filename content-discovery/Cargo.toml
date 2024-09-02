@@ -30,3 +30,19 @@ iroh-net = "0.23"
 iroh-blobs = "0.23"
 iroh-base = "0.23"
 
+
+[patch.crates-io]
+iroh = { git = "https://github.com/n0-computer/iroh", branch = "main" }
+
+
+[patch.crates-io]
+iroh-blobs = { git = "https://github.com/n0-computer/iroh", branch = "main" }
+
+
+[patch.crates-io]
+iroh-net = { git = "https://github.com/n0-computer/iroh", branch = "main" }
+
+
+[patch.crates-io]
+iroh-base = { git = "https://github.com/n0-computer/iroh", branch = "main" }
+

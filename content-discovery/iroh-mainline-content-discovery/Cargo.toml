@@ -34,3 +34,15 @@ flume = "0.11.0"
 [features]
 client = ["mainline", "iroh-quinn", "tracing", "anyhow", "rcgen", "genawaiter", "rustls", "futures", "postcard", "tokio"]
 default = ["client"]
+
+[patch.crates-io]
+iroh = { git = "https://github.com/n0-computer/iroh", branch = "main" }
+
+
+[patch.crates-io]
+iroh-blobs = { git = "https://github.com/n0-computer/iroh", branch = "main" }
+
+
+[patch.crates-io]
+iroh-net = { git = "https://github.com/n0-computer/iroh", branch = "main" }
+
