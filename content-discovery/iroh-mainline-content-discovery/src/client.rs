@@ -42,7 +42,7 @@ pub async fn announce(
     let request = postcard::to_stdvec(&request)?;
     tracing::debug!("sending announce");
     send.write_all(&request).await?;
-    send.finish().await?;
+    send.finish()?;
     let _response = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
     Ok(())
 }
@@ -196,7 +196,7 @@ pub async fn query(
     let request = postcard::to_stdvec(&request)?;
     tracing::info!("sending query");
     send.write_all(&request).await?;
-    send.finish().await?;
+    send.finish()?;
     let response = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
     let response = postcard::from_bytes::<Response>(&response)?;
     Ok(match response {

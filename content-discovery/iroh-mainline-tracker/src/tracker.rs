@@ -860,7 +860,9 @@ impl Tracker {
     }
 
     pub async fn iroh_accept_loop(self, endpoint: Endpoint) -> std::io::Result<()> {
-        while let Some(connecting) = endpoint.accept().await {
+        while let Some(incoming) = endpoint.accept().await {
+            tracing::info!("got incoming");
+            let connecting = incoming.accept()?;
             tracing::info!("got connecting");
             let tracker = self.clone();
             tokio::spawn(async move {
@@ -885,7 +887,9 @@ impl Tracker {
     pub async fn quinn_accept_loop(self, endpoint: iroh_quinn::Endpoint) -> std::io::Result<()> {
         let local_addr = endpoint.local_addr()?;
         println!("quinn listening on {}", local_addr);
-        while let Some(connecting) = endpoint.accept().await {
+        while let Some(incoming) = endpoint.accept().await {
+            tracing::info!("got incoming");
+            let connecting = incoming.accept()?;
             tracing::info!("got connecting");
             let tracker = self.clone();
             tokio::spawn(async move {
@@ -956,7 +960,7 @@ impl Tracker {
             Request::Announce(announce) => {
                 tracing::debug!("got announce: {:?}", announce);
                 self.handle_announce(announce).await?;
-                send.finish().await?;
+                send.finish()?;
             }
 
             Request::Query(query) => {
@@ -965,7 +969,7 @@ impl Tracker {
                 let response = Response::QueryResponse(response);
                 let response = postcard::to_stdvec(&response)?;
                 send.write_all(&response).await?;
-                send.finish().await?;
+                send.finish()?;
             }
         }
         Ok(())

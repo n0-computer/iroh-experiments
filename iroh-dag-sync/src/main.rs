@@ -121,7 +121,8 @@ async fn main() -> anyhow::Result<()> {
             println!("Node id:\n{}", addr.node_id);
             println!("Listening on {:#?}", addr.info);
             println!("ticket:\n{}", NodeTicket::new(addr.clone())?);
-            while let Some(mut connecting) = endpoint.accept().await {
+            while let Some(incoming) = endpoint.accept().await {
+                let mut connecting = incoming.accept()?;
                 let alpn = connecting.alpn().await?;
                 match alpn.as_ref() {
                     SYNC_ALPN => {
@@ -163,7 +164,7 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("roundtrip: {:?}", roundtrip);
             let (mut send, recv) = connection.open_bi().await?;
             send.write_all(&request).await?;
-            send.finish().await?;
+            send.finish()?;
             handle_sync_response(recv, &mut tables, &store, traversal).await?;
             drop(tables);
             tx.commit()?;
