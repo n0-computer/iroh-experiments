@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iroh-blobs = "0.23"
-iroh-gossip = "0.23"
-iroh-net = "0.23"
+iroh-blobs = "0.24"
+iroh-gossip = "0.24"
+iroh-net = "0.24"
 iroh-car = "0.4.0"
 libipld = "0.16.0"
 redb = "2.1.1"
@@ -17,7 +17,7 @@ tokio = { version = "1.38.0", features = ["full"] }
 postcard = "1.0.8"
 serde = "1.0.203"
 futures-lite = "2.3.0"
-iroh-io = "0.6.0"
+iroh-io = "0.6"
 tokio-util = { version = "0.7.11", features = ["rt"] }
 bao-tree = "0.13.0"
 genawaiter = "0.99.1"
@@ -27,8 +27,3 @@ hex = "0.4.3"
 ron = "0.8.1"
 tracing = "0.1.40"
 serde_bytes = "0.11.14"
-
-[patch.crates-io]
-iroh-blobs = { git = "https://github.com/n0-computer/iroh", branch = "main" }
-iroh-net = { git = "https://github.com/n0-computer/iroh", branch = "main" }
-iroh-gossip = { git = "https://github.com/n0-computer/iroh", branch = "main" }
