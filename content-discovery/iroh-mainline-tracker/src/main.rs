@@ -212,7 +212,7 @@ pub fn make_server_config(
 
     server_config
         .transport_config(Arc::new(transport_config))
-        .concurrent_connections(max_connections);
+        .max_incoming(max_connections as usize);
     Ok(server_config)
 }
 

@@ -23,7 +23,7 @@ iroh-blobs = { workspace = true }
 mainline = { version = "2.0.0", features = ["async"] }
 pkarr = { version = "1.0.1", features = ["async"] }
 postcard = { version = "1", default-features = false, features = ["alloc", "use-std"] }
-iroh-quinn = "0.10.5"
+iroh-quinn = "0.11.3"
 rand = "0.8"
 rcgen = "0.12.0"
 redb = "1.5.0"

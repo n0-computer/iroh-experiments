@@ -101,7 +101,7 @@ where
                 .await?;
         }
     }
-    send.0.finish().await?;
+    send.0.finish()?;
     Ok(())
 }
 
