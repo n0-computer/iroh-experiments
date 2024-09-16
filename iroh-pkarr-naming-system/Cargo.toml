@@ -13,6 +13,7 @@ iroh-blobs = "0.24"
 iroh-net = "0.24"
 pkarr = { version = "1.0.1", features = ["async", "dht"] }
 tokio = "1.35.1"
+tokio-util = "0.7.12"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

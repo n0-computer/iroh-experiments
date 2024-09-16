@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Context;
 use iroh_blobs::HashAndFormat;
-use iroh_net::{key::SecretKey, util::AbortingJoinHandle};
+use iroh_net::key::SecretKey;
 use pkarr::{
     dns::{
         rdata::{RData, TXT},
@@ -15,6 +15,7 @@ use pkarr::{
     },
     SignedPacket,
 };
+use tokio_util::task::AbortOnDropHandle;
 
 /// The key for the content of an IPNS record.
 const CONTENT_KEY: &str = "_content.iroh.";
@@ -49,7 +50,7 @@ pub struct IPNS(Arc<Inner>);
 #[derive(Debug, Default)]
 struct Inner {
     pkarr: Arc<pkarr::PkarrClient>,
-    packets: Mutex<BTreeMap<iroh_net::key::PublicKey, (Record, AbortingJoinHandle<()>)>>,
+    packets: Mutex<BTreeMap<iroh_net::key::PublicKey, (Record, AbortOnDropHandle<()>)>>,
 }
 
 impl IPNS {
@@ -79,7 +80,7 @@ impl IPNS {
                 }
             });
             let mut packets = self.0.packets.lock().unwrap();
-            packets.insert(key, (record, AbortingJoinHandle::from(publish_task)));
+            packets.insert(key, (record, AbortOnDropHandle::new(publish_task)));
         } else {
             let mut packets = self.0.packets.lock().unwrap();
             packets.remove(&key);
