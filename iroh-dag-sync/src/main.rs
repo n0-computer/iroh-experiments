@@ -1,3 +1,4 @@
+use std::net::{SocketAddrV4, SocketAddrV6};
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -31,19 +32,28 @@ use args::Args;
 
 const SYNC_ALPN: &[u8] = b"DAG_SYNC/1";
 
-async fn create_endpoint(port: Option<u16>) -> anyhow::Result<iroh_net::Endpoint> {
+async fn create_endpoint(
+    ipv4_addr: Option<SocketAddrV4>,
+    ipv6_addr: Option<SocketAddrV6>,
+) -> anyhow::Result<iroh_net::Endpoint> {
     let secret_key = util::get_or_create_secret()?;
     let discovery = Box::new(ConcurrentDiscovery::from_services(vec![
         Box::new(DnsDiscovery::n0_dns()),
         Box::new(PkarrPublisher::n0_dns(secret_key.clone())),
     ]));
 
-    let endpoint = iroh_net::Endpoint::builder()
+    let mut builder = iroh_net::Endpoint::builder()
         .secret_key(secret_key)
         .alpns(vec![SYNC_ALPN.to_vec()])
-        .discovery(discovery)
-        .bind(port.unwrap_or_default())
-        .await?;
+        .discovery(discovery);
+    if let Some(addr) = ipv4_addr {
+        builder = builder.bind_addr_v4(addr);
+    }
+    if let Some(addr) = ipv6_addr {
+        builder = builder.bind_addr_v6(addr);
+    }
+
+    let endpoint = builder.bind().await?;
 
     Ok(endpoint)
 }
@@ -115,7 +125,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         args::SubCommand::Node(args) => {
-            let endpoint = create_endpoint(args.net.iroh_port).await?;
+            let endpoint =
+                create_endpoint(args.net.iroh_ipv4_addr, args.net.iroh_ipv6_addr).await?;
             wait_for_relay(&endpoint).await?;
             let addr = endpoint.node_addr().await?;
             println!("Node id:\n{}", addr.node_id);
@@ -141,7 +152,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         args::SubCommand::Sync(args) => {
-            let endpoint = create_endpoint(args.net.iroh_port).await?;
+            let endpoint =
+                create_endpoint(args.net.iroh_ipv4_addr, args.net.iroh_ipv6_addr).await?;
             let traversal = protocol::TraversalOpts::from_args(&args.root, &args.traversal)?;
             println!("using traversal: '{}'", ron_parser().to_string(&traversal)?);
             let inline = protocol::InlineOpts::from_args(&args.inline)?;
