@@ -1,7 +1,7 @@
 use genawaiter::sync::Gen;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::{SocketAddr, SocketAddrV4, SocketAddrV6},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -224,7 +224,8 @@ pub fn create_quinn_client(
 
 async fn create_endpoint(
     key: iroh_net::key::SecretKey,
-    port: u16,
+    ipv4_addr: SocketAddrV4,
+    ipv6_addr: SocketAddrV6,
     publish: bool,
 ) -> anyhow::Result<Endpoint> {
     let mainline_discovery: Box<dyn Discovery> = if publish {
@@ -236,7 +237,9 @@ async fn create_endpoint(
         .secret_key(key)
         .discovery(mainline_discovery)
         .alpns(vec![ALPN.to_vec()])
-        .bind(port)
+        .bind_addr_v4(ipv4_addr)
+        .bind_addr_v6(ipv6_addr)
+        .bind()
         .await
 }
 
@@ -279,11 +282,12 @@ impl std::str::FromStr for TrackerId {
 /// It is provided as a convenience function for short lived utilities.
 pub async fn connect(
     tracker: &TrackerId,
-    local_port: u16,
+    local_ipv4_addr: SocketAddrV4,
+    local_ipv6_addr: SocketAddrV6,
 ) -> anyhow::Result<iroh_net::endpoint::Connection> {
     match tracker {
-        TrackerId::Quinn(tracker) => connect_socket(*tracker, local_port).await,
-        TrackerId::Iroh(tracker) => connect_iroh(*tracker, local_port).await,
+        TrackerId::Quinn(tracker) => connect_socket(*tracker, local_ipv4_addr.into()).await,
+        TrackerId::Iroh(tracker) => connect_iroh(*tracker, local_ipv4_addr, local_ipv6_addr).await,
         TrackerId::Udp(_) => anyhow::bail!("can not connect to udp tracker"),
     }
 }
@@ -291,13 +295,14 @@ pub async fn connect(
 /// Create a iroh endpoint and connect to a tracker using the [crate::protocol::ALPN] protocol.
 async fn connect_iroh(
     tracker: NodeId,
-    local_port: u16,
+    local_ipv4_addr: SocketAddrV4,
+    local_ipv6_addr: SocketAddrV6,
 ) -> anyhow::Result<iroh_net::endpoint::Connection> {
     // todo: uncomment once the connection problems are fixed
     // for now, a random node id is more reliable.
     // let key = load_secret_key(tracker_path(CLIENT_KEY)?).await?;
     let key = iroh_net::key::SecretKey::generate();
-    let endpoint = create_endpoint(key, local_port, false).await?;
+    let endpoint = create_endpoint(key, local_ipv4_addr, local_ipv6_addr, false).await?;
     tracing::info!("trying to connect to tracker at {:?}", tracker);
     let connection = endpoint.connect_by_node_id(tracker, ALPN).await?;
     Ok(connection)
@@ -306,10 +311,9 @@ async fn connect_iroh(
 /// Create a quinn endpoint and connect to a tracker using the [crate::protocol::ALPN] protocol.
 async fn connect_socket(
     tracker: SocketAddr,
-    local_port: u16,
+    local_addr: SocketAddr,
 ) -> anyhow::Result<iroh_net::endpoint::Connection> {
-    let bind_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, local_port));
-    let endpoint = create_quinn_client(bind_addr, vec![ALPN.to_vec()], false)?;
+    let endpoint = create_quinn_client(local_addr, vec![ALPN.to_vec()], false)?;
     tracing::info!("trying to connect to tracker at {:?}", tracker);
     let connection = endpoint.connect(tracker, "localhost")?.await?;
     Ok(connection)

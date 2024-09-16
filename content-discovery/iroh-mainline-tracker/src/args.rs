@@ -1,11 +1,13 @@
 //! Command line arguments.
+use std::net::SocketAddrV4;
+
 use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct Args {
     /// The port to listen on.
     #[clap(long)]
-    pub iroh_port: Option<u16>,
+    pub iroh_ipv4_addr: Option<SocketAddrV4>,
 
     /// The quinn port to listen on.
     ///
