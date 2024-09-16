@@ -3,7 +3,11 @@ use clap::{Parser, Subcommand};
 use iroh_base::ticket::BlobTicket;
 use iroh_blobs::{Hash, HashAndFormat};
 use iroh_net::NodeId;
-use std::{fmt::Display, net::SocketAddr, str::FromStr};
+use std::{
+    fmt::Display,
+    net::{SocketAddr, SocketAddrV4},
+    str::FromStr,
+};
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -95,9 +99,9 @@ pub struct AnnounceArgs {
     #[clap(long)]
     pub udp_port: Option<u16>,
 
-    /// the port to use for announcing via iroh
+    /// the ipv4 to use for announcing via iroh
     #[clap(long)]
-    pub iroh_port: Option<u16>,
+    pub iroh_ipv4_addr: Option<SocketAddrV4>,
 
     /// the port to use for announcing via quic
     #[clap(long)]

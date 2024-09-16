@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    net::{SocketAddrV4, SocketAddrV6},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use iroh_net::NodeId;
@@ -45,9 +48,12 @@ pub struct NodeArgs {
 
 #[derive(Debug, Parser)]
 pub struct NetArgs {
-    /// The port to listen on.
-    #[clap(long, help = "The port to listen on")]
-    pub iroh_port: Option<u16>,
+    /// The IPv4 addr to listen on.
+    #[clap(long)]
+    pub iroh_ipv4_addr: Option<SocketAddrV4>,
+    /// The IPv6 addr to listen on.
+    #[clap(long)]
+    pub iroh_ipv6_addr: Option<SocketAddrV6>,
 }
 
 #[derive(Debug, Parser)]

@@ -13,6 +13,7 @@ use iroh::net::{key::SecretKey, Endpoint, NodeAddr};
 use iroh_io::{AsyncSliceReaderExt, HttpAdapter};
 use iroh_s3_bao_store::S3Store;
 use serde::Deserialize;
+use std::net::{SocketAddrV4, SocketAddrV6};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
@@ -26,7 +27,7 @@ use url::Url;
 /// For all subcommands, you can specify a secret key using the IROH_SECRET
 /// environment variable. If you don't, a random one will be generated.
 ///
-/// You can also specify a port for the iroh socket. If you don't, a random one
+/// You can also specify the address for the iroh socket. If you don't, a random one
 /// will be chosen.
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -80,12 +81,16 @@ pub enum Commands {
 
 #[derive(Parser, Debug)]
 pub struct CommonArgs {
-    /// The port for the iroh socket to listen on.
+    /// The IPv4 addr for the iroh socket to listen on.
     ///
     /// Defauls to a random free port, but it can be useful to specify a fixed
     /// port, e.g. to configure a firewall rule.
-    #[clap(long, default_value_t = 0)]
-    pub iroh_port: u16,
+    #[clap(long)]
+    pub iroh_ipv4_addr: Option<SocketAddrV4>,
+
+    /// The IPv6 addr for the iroh socket to listen on.
+    #[clap(long)]
+    pub iroh_ipv6_addr: Option<SocketAddrV6>,
 
     #[clap(long, default_value_t = Format::Hex)]
     pub format: Format,
@@ -221,17 +226,24 @@ impl CustomEventSender for ClientStatus {
 
 async fn serve_db(
     db: S3Store,
-    iroh_port: u16,
+    iroh_ipv4_addr: Option<SocketAddrV4>,
+    iroh_ipv6_addr: Option<SocketAddrV6>,
     on_addr: impl FnOnce(NodeAddr) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let secret_key = get_or_create_secret(true)?;
     // create an iroh endpoint
-    let endpoint_fut = Endpoint::builder()
+    let mut builder = Endpoint::builder()
         .alpns(vec![iroh::blobs::protocol::ALPN.to_vec()])
-        .secret_key(secret_key)
-        .bind(iroh_port);
+        .secret_key(secret_key);
+
+    if let Some(addr) = iroh_ipv4_addr {
+        builder = builder.bind_addr_v4(addr);
+    }
+    if let Some(addr) = iroh_ipv6_addr {
+        builder = builder.bind_addr_v6(addr);
+    }
     // wait for the endpoint to be ready
-    let endpoint = endpoint_fut.await?;
+    let endpoint = builder.bind().await?;
     // wait for the endpoint to figure out its address before making a ticket
     while endpoint.home_relay().is_none() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -282,13 +294,18 @@ async fn serve_s3(args: ServeS3Args) -> anyhow::Result<()> {
         last_hash = Some(db.import_mem(blob).await?);
     }
 
-    serve_db(db, args.common.iroh_port, |addr| {
-        if let Some(hash) = last_hash {
-            let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq)?;
-            println!("collection: {}", ticket);
-        }
-        Ok(())
-    })
+    serve_db(
+        db,
+        args.common.iroh_ipv4_addr,
+        args.common.iroh_ipv6_addr,
+        |addr| {
+            if let Some(hash) = last_hash {
+                let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq)?;
+                println!("collection: {}", ticket);
+            }
+            Ok(())
+        },
+    )
     .await?;
     Ok(())
 }
@@ -312,17 +329,22 @@ async fn serve_urls(args: ImportS3Args) -> anyhow::Result<()> {
         last_hash = Some(db.import_mem(blob).await?);
     }
 
-    serve_db(db, args.common.iroh_port, |addr| {
-        for (name, hash) in &hashes {
-            let ticket = BlobTicket::new(addr.clone(), *hash, BlobFormat::Raw)?;
-            println!("{} {}", name, ticket);
-        }
-        if let Some(hash) = last_hash {
-            let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq)?;
-            println!("collection: {}", ticket);
-        }
-        Ok(())
-    })
+    serve_db(
+        db,
+        args.common.iroh_ipv4_addr,
+        args.common.iroh_ipv6_addr,
+        |addr| {
+            for (name, hash) in &hashes {
+                let ticket = BlobTicket::new(addr.clone(), *hash, BlobFormat::Raw)?;
+                println!("{} {}", name, ticket);
+            }
+            if let Some(hash) = last_hash {
+                let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq)?;
+                println!("collection: {}", ticket);
+            }
+            Ok(())
+        },
+    )
     .await?;
     Ok(())
 }

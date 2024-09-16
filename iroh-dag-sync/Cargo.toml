@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iroh-blobs = "0.24"
-iroh-gossip = "0.24"
-iroh-net = "0.24"
+iroh-blobs = "0.25"
+iroh-gossip = "0.25"
+iroh-net = "0.25"
 iroh-car = "0.4.0"
 libipld = "0.16.0"
 redb = "2.1.1"

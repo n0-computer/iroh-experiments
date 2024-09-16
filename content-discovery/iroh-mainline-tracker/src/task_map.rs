@@ -4,8 +4,8 @@ use std::{
 };
 
 use derive_more::Debug;
-use iroh_net::util::AbortingJoinHandle;
 use tokio::task::JoinHandle;
+use tokio_util::task::AbortOnDropHandle;
 
 /// A map of long lived or infinite tasks.
 #[derive(Clone, Debug)]
@@ -15,7 +15,7 @@ impl<T: Ord + Debug> TaskMap<T> {
     /// Create a new task map.
     pub fn publish(&self, key: T, task: JoinHandle<()>) {
         let mut tasks = self.0.tasks.lock().unwrap();
-        tasks.insert(key, task.into());
+        tasks.insert(key, AbortOnDropHandle::new(task));
     }
 
     pub fn retain(&self, f: impl Fn(&T) -> bool) {
@@ -32,7 +32,7 @@ impl<T: Ord + Debug> Default for TaskMap<T> {
 
 #[derive(Debug)]
 struct Inner<T: Ord> {
-    tasks: Mutex<BTreeMap<T, AbortingJoinHandle<()>>>,
+    tasks: Mutex<BTreeMap<T, AbortOnDropHandle<()>>>,
 }
 
 impl<T: Ord + Debug> Default for Inner<T> {

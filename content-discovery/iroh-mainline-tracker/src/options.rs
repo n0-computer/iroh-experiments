@@ -1,5 +1,6 @@
 //! Options for the tracker
 use std::{
+    net::SocketAddrV4,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -58,8 +59,8 @@ pub struct Options {
     /// to the DHT. Set to 0 to listen on a random port.
     pub quinn_port: u16,
 
-    /// The iroh port to listen on. Set to 0 to listen on a random port.
-    pub iroh_port: u16,
+    /// The iroh adr to listen on. Set port to 0 to listen on a random port.
+    pub iroh_ipv4_addr: SocketAddrV4,
 
     /// The UDP port to listen on. Set to 0 to listen on a random port.
     pub udp_port: u16,
@@ -81,7 +82,7 @@ impl Default for Options {
             probe_log: None,
             announce_data_path: "announce.redb".into(),
             quinn_port: 0,
-            iroh_port: 0,
+            iroh_ipv4_addr: "0.0.0.0:0".parse().unwrap(),
             udp_port: 0,
         }
     }
@@ -105,7 +106,7 @@ impl Options {
             probe_log: Some("probe.log".into()),
             announce_data_path: "announce.redb".into(),
             quinn_port: 0,
-            iroh_port: 0,
+            iroh_ipv4_addr: "0.0.0.0:0".parse().unwrap(),
             udp_port: 0,
         }
     }

@@ -67,7 +67,7 @@ async fn await_relay_region(endpoint: &Endpoint) -> anyhow::Result<()> {
 
 async fn create_endpoint(
     key: iroh_net::key::SecretKey,
-    port: u16,
+    ipv4_addr: SocketAddrV4,
     publish: bool,
 ) -> anyhow::Result<Endpoint> {
     let mainline_discovery = if publish {
@@ -79,7 +79,8 @@ async fn create_endpoint(
         .secret_key(key)
         .discovery(Box::new(mainline_discovery))
         .alpns(vec![ALPN.to_vec()])
-        .bind(port)
+        .bind_addr_v4(ipv4_addr)
+        .bind()
         .await
 }
 
@@ -121,8 +122,8 @@ async fn server(args: Args) -> anyhow::Result<()> {
     if let Some(quinn_port) = args.quinn_port {
         options.quinn_port = quinn_port;
     }
-    if let Some(iroh_port) = args.iroh_port {
-        options.iroh_port = iroh_port;
+    if let Some(addr) = args.iroh_ipv4_addr {
+        options.iroh_ipv4_addr = addr;
     }
     if let Some(udp_port) = args.udp_port {
         options.udp_port = udp_port;
@@ -138,7 +139,7 @@ async fn server(args: Args) -> anyhow::Result<()> {
     let quinn_endpoint = iroh_quinn::Endpoint::server(server_config, quinn_bind_addr)?;
     // set the quinn port to the actual port we bound to so the DHT will announce it correctly
     options.quinn_port = quinn_endpoint.local_addr()?.port();
-    let iroh_endpoint = create_endpoint(key.clone(), options.iroh_port, true).await?;
+    let iroh_endpoint = create_endpoint(key.clone(), options.iroh_ipv4_addr, true).await?;
     let db = Tracker::new(options, iroh_endpoint.clone())?;
     await_relay_region(&iroh_endpoint).await?;
     let addr = iroh_endpoint.node_addr().await?;

@@ -56,8 +56,12 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
         discovery.announce_once(signed_announce).await?;
     }
     if !args.magicsock_tracker.is_empty() {
+        let addr = args
+            .iroh_ipv4_addr
+            .unwrap_or_else(|| "0.0.0.0:0".parse().unwrap());
         let iroh_endpoint = endpoint::Endpoint::builder()
-            .bind(args.iroh_port.unwrap_or_default())
+            .bind_addr_v4(addr)
+            .bind()
             .await?;
         for tracker in args.magicsock_tracker {
             println!("announcing via magicsock to {:?}: {}", tracker, content);
