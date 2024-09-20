@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use clap::Parser;
 use futures_lite::StreamExt;
+use ipld_core::codec::Links;
 use iroh_blobs::store::{Map, MapEntry};
 use iroh_blobs::{store::Store, BlobFormat};
 use iroh_car::CarReader;
@@ -11,9 +12,8 @@ use iroh_io::AsyncSliceReaderExt;
 use iroh_net::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
 use iroh_net::ticket::NodeTicket;
 use iroh_net::NodeAddr;
-use libipld::{cbor::DagCborCodec, codec::Codec};
-use libipld::{DagCbor, Ipld, IpldCodec};
 use protocol::{ron_parser, Cid, Request};
+use serde::{Deserialize, Serialize};
 use sync::{handle_request, handle_sync_response};
 use tables::{ReadOnlyTables, ReadableTables, Tables};
 use tokio::io::AsyncWriteExt;
@@ -88,13 +88,13 @@ async fn main() -> anyhow::Result<()> {
                 if first.is_none() {
                     first = Some(cid);
                 }
-                let mut links = Vec::new();
-                IpldCodec::try_from(cid.codec())?.references::<Ipld, _>(&data, &mut links)?;
+                let links: Vec<_> =
+                    serde_ipld_dagcbor::codec::DagCborCodec::links(&data)?.collect();
                 let tag = store.import_bytes(data.into(), BlobFormat::Raw).await?;
                 let hash = tag.hash();
                 if !links.is_empty() {
                     println!("{} {} {}", i, cid, links.len());
-                    let links = DagCborCodec.encode(&links)?;
+                    let links = serde_ipld_dagcbor::to_vec(&links)?;
                     tables.data_to_links.insert((cid.codec(), *hash), links)?;
                 } else {
                     println!("{} {}", i, cid);
@@ -225,7 +225,7 @@ where
     T: Traversal,
     T::Db: ReadableTables,
 {
-    #[derive(DagCbor)]
+    #[derive(Serialize, Deserialize)]
     struct CarFileHeader {
         version: u64,
         roots: Vec<Cid>,
@@ -235,7 +235,7 @@ where
         version: 1,
         roots: traversal.roots(),
     };
-    let header_bytes = DagCborCodec.encode(&header)?;
+    let header_bytes = serde_ipld_dagcbor::to_vec(&header)?;
     file.write_all(&postcard::to_allocvec(&(header_bytes.len() as u64))?)
         .await?;
     file.write_all(&header_bytes).await?;
