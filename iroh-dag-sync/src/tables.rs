@@ -1,6 +1,7 @@
 use anyhow::Context;
+use ipld_core::codec::Links;
 use iroh_blobs::Hash;
-use libipld::{cbor::DagCborCodec, codec::Codec, Cid, Ipld, IpldCodec, Multihash};
+use multihash::Multihash;
 use redb::{ReadableTable, TableDefinition};
 
 /// Table mapping ipld hash to blake3 hash.
@@ -15,7 +16,7 @@ pub trait ReadableTables {
     fn data_to_links(&self) -> &impl redb::ReadableTable<(u64, Hash), Vec<u8>>;
 
     #[allow(dead_code)]
-    fn has_links(&self, cid: &Cid) -> anyhow::Result<bool> {
+    fn has_links(&self, cid: &cid::Cid) -> anyhow::Result<bool> {
         let hash = self
             .hash_to_blake3()
             .get((cid.hash().code(), cid.hash().digest()))?
@@ -27,7 +28,7 @@ pub trait ReadableTables {
     }
 
     /// Get the stored links for a given ipld hash.
-    fn links(&self, cid: &Cid) -> anyhow::Result<Option<Vec<Cid>>> {
+    fn links(&self, cid: &cid::Cid) -> anyhow::Result<Option<Vec<cid::Cid>>> {
         let hash = self
             .hash_to_blake3()
             .get((cid.hash().code(), cid.hash().digest()))?
@@ -35,11 +36,11 @@ pub trait ReadableTables {
         let Some(links) = self.data_to_links().get((cid.codec(), hash.value()))? else {
             return Ok(None);
         };
-        Ok(Some(DagCborCodec.decode::<Vec<Cid>>(&links.value())?))
+        Ok(Some(serde_ipld_dagcbor::from_slice(&links.value())?))
     }
 
     /// Get the blake3 hash for a given ipld hash.
-    fn blake3_hash(&self, hash: &Multihash) -> anyhow::Result<Option<Hash>> {
+    fn blake3_hash<const N: usize>(&self, hash: &Multihash<N>) -> anyhow::Result<Option<Hash>> {
         Ok(self
             .hash_to_blake3()
             .get((hash.code(), hash.digest()))?
@@ -80,13 +81,12 @@ impl<'tx> Tables<'tx> {
         })
     }
 
-    pub fn insert_links(&mut self, cid: &Cid, hash: Hash, data: &[u8]) -> anyhow::Result<()> {
-        let mut links = Vec::new();
-        IpldCodec::try_from(cid.codec())?.references::<Ipld, _>(data, &mut links)?;
+    pub fn insert_links(&mut self, cid: &cid::Cid, hash: Hash, data: &[u8]) -> anyhow::Result<()> {
+        let links: Vec<_> = serde_ipld_dagcbor::codec::DagCborCodec::links(data)?.collect();
         self.hash_to_blake3
             .insert((cid.hash().code(), cid.hash().digest()), hash)?;
         if !links.is_empty() {
-            let links = DagCborCodec.encode(&links)?;
+            let links = serde_ipld_dagcbor::to_vec(&links)?;
             self.data_to_links.insert((cid.codec(), hash), links)?;
         }
         Ok(())

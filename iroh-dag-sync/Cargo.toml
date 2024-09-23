@@ -7,15 +7,14 @@ edition = "2021"
 iroh-blobs = "0.25"
 iroh-gossip = "0.25"
 iroh-net = "0.25"
-iroh-car = "0.4.0"
-libipld = "0.16.0"
+iroh-car = "0.5.0"
 redb = "2.1.1"
 clap = { version = "4.5.7", features = ["derive"] }
 tracing-subscriber = "0.3.18"
 anyhow = "1.0.86"
 tokio = { version = "1.38.0", features = ["full"] }
 postcard = "1.0.8"
-serde = "1.0.203"
+serde = { version = "1.0.203", features = ["derive"] }
 futures-lite = "2.3.0"
 iroh-io = "0.6"
 tokio-util = { version = "0.7.11", features = ["rt"] }
@@ -27,3 +26,8 @@ hex = "0.4.3"
 ron = "0.8.1"
 tracing = "0.1.40"
 serde_bytes = "0.11.14"
+ipld-core = "0.4.1"
+multihash = "0.19.1"
+cid = { version = "0.11.1", features = ["serde"] }
+multihash-codetable = "0.1.3"
+serde_ipld_dagcbor = "0.6.1"

@@ -1,7 +1,6 @@
 use std::{collections::BTreeSet, fmt::Display, ops::Deref, str::FromStr};
 
 use iroh_blobs::Hash;
-use libipld::DagCbor;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncRead;
 
@@ -14,8 +13,8 @@ pub enum Request {
 ///
 /// Yes, I know cid has a feature for serde, but I had some issues with DagCbor
 /// derive when using it, probably because libipld does not have the latest cid.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, DagCbor)]
-pub struct Cid(libipld::Cid);
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+pub struct Cid(cid::Cid);
 
 impl Serialize for Cid {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -31,32 +30,30 @@ impl<'de> Deserialize<'de> for Cid {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         if deserializer.is_human_readable() {
             let s = String::deserialize(deserializer)?;
-            Ok(Cid(
-                libipld::Cid::try_from(s).map_err(serde::de::Error::custom)?
-            ))
+            Ok(Cid(cid::Cid::try_from(s).map_err(serde::de::Error::custom)?))
         } else {
             let bytes = serde_bytes::ByteBuf::deserialize(deserializer)?;
             Ok(Cid(
-                libipld::Cid::try_from(bytes.into_vec()).map_err(serde::de::Error::custom)?
+                cid::Cid::try_from(bytes.into_vec()).map_err(serde::de::Error::custom)?
             ))
         }
     }
 }
 
-impl From<libipld::Cid> for Cid {
-    fn from(cid: libipld::Cid) -> Self {
+impl From<cid::Cid> for Cid {
+    fn from(cid: cid::Cid) -> Self {
         Self(cid)
     }
 }
 
-impl From<Cid> for libipld::Cid {
+impl From<Cid> for cid::Cid {
     fn from(scid: Cid) -> Self {
         scid.0
     }
 }
 
 impl Deref for Cid {
-    type Target = libipld::Cid;
+    type Target = cid::Cid;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -70,10 +67,10 @@ impl std::fmt::Display for Cid {
 }
 
 impl std::str::FromStr for Cid {
-    type Err = libipld::cid::Error;
+    type Err = cid::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Cid(libipld::Cid::try_from(s)?))
+        Ok(Cid(cid::Cid::try_from(s)?))
     }
 }
 

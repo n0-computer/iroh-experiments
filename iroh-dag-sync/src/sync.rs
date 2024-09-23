@@ -8,7 +8,7 @@ use iroh_blobs::{
 };
 use iroh_io::{TokioStreamReader, TokioStreamWriter};
 use iroh_net::endpoint::{Connecting, RecvStream, SendStream};
-use libipld::multihash::MultihashDigest;
+use multihash_codetable::MultihashDigest;
 use tokio::io::AsyncReadExt;
 
 use crate::{
@@ -137,7 +137,7 @@ pub async fn handle_sync_response<'a>(
         let mut buffer = Vec::new();
         bao_tree::io::fsm::decode_ranges(&mut reader, ChunkRanges::all(), &mut buffer, outboard)
             .await?;
-        let hasher = libipld::multihash::Code::try_from(cid.hash().code())?;
+        let hasher = multihash_codetable::Code::try_from(cid.hash().code())?;
         let actual = hasher.digest(&buffer);
         if &actual != cid.hash() {
             anyhow::bail!("user hash mismatch");
