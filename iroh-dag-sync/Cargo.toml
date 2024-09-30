@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iroh-blobs = "0.25"
-iroh-gossip = "0.25"
-iroh-net = "0.25"
+iroh-blobs = "0.26"
+iroh-gossip = "0.26"
+iroh-net = "0.26"
 iroh-car = "0.5.0"
 redb = "2.1.1"
 clap = { version = "4.5.7", features = ["derive"] }
