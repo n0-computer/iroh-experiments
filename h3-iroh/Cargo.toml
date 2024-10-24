@@ -1,0 +1,23 @@
+[package]
+name = "h3-iroh"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+bytes = "1"
+futures = "0.3"
+h3 = { version = "0.0.6", features = ["tracing"] }
+iroh-net = "0.26"
+tokio = { version = "1", features = ["io-util"], default-features = false}
+tokio-util = "0.7"
+tracing = "0.1"
+
+[patch.crates-io]
+iroh-net = { path = "../../iroh/iroh-net" }
+
+[dev-dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+http = "1"
+tracing-subscriber = "0.3"
