@@ -131,7 +131,7 @@ async fn main() -> anyhow::Result<()> {
             let addr = endpoint.node_addr().await?;
             println!("Node id:\n{}", addr.node_id);
             println!("Listening on {:#?}", addr.info);
-            println!("ticket:\n{}", NodeTicket::new(addr.clone())?);
+            println!("ticket:\n{}", NodeTicket::new(addr.clone()));
             while let Some(incoming) = endpoint.accept().await {
                 let mut connecting = incoming.accept()?;
                 let alpn = connecting.alpn().await?;

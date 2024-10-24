@@ -66,7 +66,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
         for tracker in args.magicsock_tracker {
             println!("announcing via magicsock to {:?}: {}", tracker, content);
             let connection = iroh_endpoint
-                .connect_by_node_id(tracker, iroh_mainline_content_discovery::protocol::ALPN)
+                .connect(tracker, iroh_mainline_content_discovery::protocol::ALPN)
                 .await?;
             iroh_mainline_content_discovery::announce(connection, signed_announce).await?;
         }
