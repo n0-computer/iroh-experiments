@@ -89,7 +89,7 @@ async fn query_iroh_one(
     node_id: NodeId,
     args: Query,
 ) -> anyhow::Result<Vec<SignedAnnounce>> {
-    let connection = endpoint.connect_by_node_id(node_id, ALPN).await?;
+    let connection = endpoint.connect(node_id, ALPN).await?;
     let result = query(connection, args).await?;
     Ok(result.hosts)
 }
@@ -304,7 +304,7 @@ async fn connect_iroh(
     let key = iroh_net::key::SecretKey::generate();
     let endpoint = create_endpoint(key, local_ipv4_addr, local_ipv6_addr, false).await?;
     tracing::info!("trying to connect to tracker at {:?}", tracker);
-    let connection = endpoint.connect_by_node_id(tracker, ALPN).await?;
+    let connection = endpoint.connect(tracker, ALPN).await?;
     Ok(connection)
 }
 
