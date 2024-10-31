@@ -20,6 +20,9 @@ use tracing::instrument;
 
 pub use iroh_net::endpoint::{AcceptBi, AcceptUni, Endpoint, OpenBi, OpenUni, VarInt, WriteError};
 
+#[cfg(feature = "axum")]
+pub mod axum;
+
 /// BoxStream with Sync trait
 type BoxStreamSync<'a, T> = Pin<Box<dyn Stream<Item = T> + Sync + Send + 'a>>;
 

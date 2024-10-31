@@ -1,3 +1,7 @@
+//! Demonstration of using h3-iroh as a server without framework.
+//!
+//! run using `cargo run --example server -- --root .`
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -53,7 +57,9 @@ async fn main() -> Result<()> {
     // Wait for direct addresses and a RelayUrl before printing a NodeTicket.
     ep.direct_addresses().next().await;
     ep.watch_home_relay().next().await;
-    info!("node ticket: {}", NodeTicket::new(ep.node_addr().await?));
+    let ticket = NodeTicket::new(ep.node_addr().await?);
+    info!("node ticket: {ticket}");
+    info!("run e.g.: cargo run --example client -- iroh+h3://{ticket}/Cargo.toml");
 
     // Handle incoming connections
     while let Some(incoming) = ep.accept().await {
