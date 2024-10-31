@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
         bail!("URI scheme must be iroh+h3");
     }
     let ticket = uri.host().context("missing hostname in URI")?;
-    let ticket = NodeTicket::from_str(&ticket)?;
+    let ticket = NodeTicket::from_str(ticket)?;
     let addr: NodeAddr = ticket.into();
 
     let ep = iroh_net::Endpoint::builder()
