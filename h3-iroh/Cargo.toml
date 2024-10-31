@@ -34,7 +34,7 @@ axum = [
 ]
 
 [patch.crates-io]
-iroh-net = { path = "../../iroh/iroh-net" }
+iroh-net = { git = "http://github.com/n0-computer/iroh/", branch = "main" }
 
 [dev-dependencies]
 anyhow = "1"
