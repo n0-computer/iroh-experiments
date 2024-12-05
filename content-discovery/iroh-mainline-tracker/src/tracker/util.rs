@@ -100,7 +100,7 @@ impl<'a, T> BatchIter<'a, T> {
     }
 }
 
-impl<'a, T> Iterator for BatchIter<'a, T> {
+impl<T> Iterator for BatchIter<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
