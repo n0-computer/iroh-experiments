@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::Parser;
-use iroh_net::NodeId;
+use iroh::NodeId;
 
 use crate::protocol::Cid;
 

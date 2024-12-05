@@ -1,4 +1,4 @@
-use iroh::base::ticket::BlobTicket;
+use iroh::ticket::BlobTicket;
 use iroh_blobs::{Hash, HashAndFormat};
 use iroh_pkarr_naming_system::{Record, IPNS};
 use std::{fmt::Display, process, str::FromStr};
@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
     match args.len() {
         // resolve a record
         1 => {
-            let public_key = iroh_net::key::PublicKey::from_str(&args[0])?;
+            let public_key = iroh::key::PublicKey::from_str(&args[0])?;
             let ipns = IPNS::default();
             let record = ipns.resolve(public_key).await?;
             if let Some(Record::Content { content }) = record {
@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
         }
         // publish a record
         2 => {
-            let secret_key = iroh_net::key::SecretKey::from_str(&args[0])?;
+            let secret_key = iroh::key::SecretKey::from_str(&args[0])?;
             let public_key = secret_key.public();
             let zid = pkarr::PublicKey::try_from(*public_key.as_bytes())?.to_z32();
             let content = ContentArg::from_str(&args[1])?.hash_and_format();

@@ -14,7 +14,7 @@ use iroh_mainline_content_discovery::{
     protocol::{AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce},
     to_infohash, UdpDiscovery,
 };
-use iroh_net::endpoint;
+use iroh::endpoint;
 use tokio::io::AsyncWriteExt;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -26,7 +26,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
         eprintln!("ANNOUNCE_SECRET environment variable must be set to a valid secret key");
         anyhow::bail!("ANNOUNCE_SECRET env var not set");
     };
-    let Ok(key) = iroh_net::key::SecretKey::from_str(&key) else {
+    let Ok(key) = iroh::key::SecretKey::from_str(&key) else {
         anyhow::bail!("ANNOUNCE_SECRET env var is not a valid secret key");
     };
     let content = args.content.hash_and_format();
@@ -169,14 +169,14 @@ async fn main() -> anyhow::Result<()> {
 /// Loads a [`SecretKey`] from the provided file.
 pub async fn load_secret_key(
     key_path: std::path::PathBuf,
-) -> anyhow::Result<iroh_net::key::SecretKey> {
+) -> anyhow::Result<iroh::key::SecretKey> {
     if key_path.exists() {
         let keystr = tokio::fs::read(key_path).await?;
         let secret_key =
-            iroh_net::key::SecretKey::try_from_openssh(keystr).context("invalid keyfile")?;
+            iroh::key::SecretKey::try_from_openssh(keystr).context("invalid keyfile")?;
         Ok(secret_key)
     } else {
-        let secret_key = iroh_net::key::SecretKey::generate();
+        let secret_key = iroh::key::SecretKey::generate();
         let ser_key = secret_key.to_openssh()?;
 
         // Try to canoncialize if possible

@@ -19,7 +19,7 @@ use iroh_mainline_content_discovery::{
     },
     to_infohash,
 };
-use iroh_net::{endpoint::get_remote_node_id, Endpoint, NodeId};
+use iroh::{endpoint::get_remote_node_id, Endpoint, NodeId};
 use rand::Rng;
 use redb::{ReadableTable, RedbValue};
 use serde::{Deserialize, Serialize};
@@ -1263,7 +1263,7 @@ pub async fn get_alpn(connecting: &mut iroh_quinn::Connecting) -> anyhow::Result
 
 /// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
 async fn iroh_accept_conn(
-    mut conn: iroh_net::endpoint::Connecting,
+    mut conn: iroh::endpoint::Connecting,
 ) -> anyhow::Result<(NodeId, Vec<u8>, iroh_quinn::Connection)> {
     let alpn = conn.alpn().await?;
     let conn = conn.await?;

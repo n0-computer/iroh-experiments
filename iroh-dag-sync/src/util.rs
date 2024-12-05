@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use iroh_net::{key::SecretKey, Endpoint};
+use iroh::{key::SecretKey, Endpoint};
 
 // Wait for the endpoint to figure out its relay address.
 pub async fn wait_for_relay(endpoint: &Endpoint) -> anyhow::Result<()> {

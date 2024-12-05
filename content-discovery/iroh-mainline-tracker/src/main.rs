@@ -20,7 +20,7 @@ use iroh_mainline_tracker::{
     options::Options,
     tracker::Tracker,
 };
-use iroh_net::{
+use iroh::{
     discovery::pkarr::dht::DhtDiscovery, endpoint::get_remote_node_id, Endpoint, NodeId,
 };
 
@@ -66,7 +66,7 @@ async fn await_relay_region(endpoint: &Endpoint) -> anyhow::Result<()> {
 }
 
 async fn create_endpoint(
-    key: iroh_net::key::SecretKey,
+    key: iroh::key::SecretKey,
     ipv4_addr: SocketAddrV4,
     publish: bool,
 ) -> anyhow::Result<Endpoint> {
@@ -75,7 +75,7 @@ async fn create_endpoint(
     } else {
         DhtDiscovery::default()
     };
-    iroh_net::Endpoint::builder()
+    iroh::Endpoint::builder()
         .secret_key(key)
         .discovery(Box::new(mainline_discovery))
         .alpns(vec![ALPN.to_vec()])
@@ -192,19 +192,19 @@ async fn main() -> anyhow::Result<()> {
 /// Returns default server configuration along with its certificate.
 #[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
 fn configure_server(
-    secret_key: &iroh_net::key::SecretKey,
+    secret_key: &iroh::key::SecretKey,
 ) -> anyhow::Result<iroh_quinn::ServerConfig> {
     make_server_config(secret_key, 8, 1024, vec![ALPN.to_vec()])
 }
 
 /// Create a [`quinn::ServerConfig`] with the given secret key and limits.
 pub fn make_server_config(
-    secret_key: &iroh_net::key::SecretKey,
+    secret_key: &iroh::key::SecretKey,
     max_streams: u64,
     max_connections: u32,
     alpn_protocols: Vec<Vec<u8>>,
 ) -> anyhow::Result<iroh_quinn::ServerConfig> {
-    let tls_server_config = iroh_net::tls::make_server_config(secret_key, alpn_protocols, false)?;
+    let tls_server_config = iroh::tls::make_server_config(secret_key, alpn_protocols, false)?;
     let mut server_config = iroh_quinn::ServerConfig::with_crypto(Arc::new(tls_server_config));
     let mut transport_config = iroh_quinn::TransportConfig::default();
     transport_config
@@ -220,14 +220,14 @@ pub fn make_server_config(
 /// Loads a [`SecretKey`] from the provided file.
 pub async fn load_secret_key(
     key_path: std::path::PathBuf,
-) -> anyhow::Result<iroh_net::key::SecretKey> {
+) -> anyhow::Result<iroh::key::SecretKey> {
     if key_path.exists() {
         let keystr = tokio::fs::read(key_path).await?;
         let secret_key =
-            iroh_net::key::SecretKey::try_from_openssh(keystr).context("invalid keyfile")?;
+            iroh::key::SecretKey::try_from_openssh(keystr).context("invalid keyfile")?;
         Ok(secret_key)
     } else {
-        let secret_key = iroh_net::key::SecretKey::generate();
+        let secret_key = iroh::key::SecretKey::generate();
         let ser_key = secret_key.to_openssh()?;
 
         // Try to canoncialize if possible

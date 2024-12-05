@@ -5,13 +5,13 @@ use anyhow::Context;
 use clap::Parser;
 use futures_lite::StreamExt;
 use ipld_core::codec::Links;
+use iroh::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
+use iroh::ticket::NodeTicket;
+use iroh::NodeAddr;
 use iroh_blobs::store::{Map, MapEntry};
 use iroh_blobs::{store::Store, BlobFormat};
 use iroh_car::CarReader;
 use iroh_io::AsyncSliceReaderExt;
-use iroh_net::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
-use iroh_net::ticket::NodeTicket;
-use iroh_net::NodeAddr;
 use protocol::{ron_parser, Cid, Request};
 use serde::{Deserialize, Serialize};
 use sync::{handle_request, handle_sync_response};
@@ -35,14 +35,14 @@ const SYNC_ALPN: &[u8] = b"DAG_SYNC/1";
 async fn create_endpoint(
     ipv4_addr: Option<SocketAddrV4>,
     ipv6_addr: Option<SocketAddrV6>,
-) -> anyhow::Result<iroh_net::Endpoint> {
+) -> anyhow::Result<iroh::Endpoint> {
     let secret_key = util::get_or_create_secret()?;
     let discovery = Box::new(ConcurrentDiscovery::from_services(vec![
         Box::new(DnsDiscovery::n0_dns()),
         Box::new(PkarrPublisher::n0_dns(secret_key.clone())),
     ]));
 
-    let mut builder = iroh_net::Endpoint::builder()
+    let mut builder = iroh::Endpoint::builder()
         .secret_key(secret_key)
         .alpns(vec![SYNC_ALPN.to_vec()])
         .discovery(discovery);
