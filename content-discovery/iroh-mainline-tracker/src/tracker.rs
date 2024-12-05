@@ -6,6 +6,7 @@ use std::{
 };
 
 use bao_tree::ChunkNum;
+use iroh::{endpoint::get_remote_node_id, Endpoint, NodeId};
 use iroh_blobs::{
     get::{fsm::EndBlobNext, Stats},
     hashseq::HashSeq,
@@ -19,7 +20,6 @@ use iroh_mainline_content_discovery::{
     },
     to_infohash,
 };
-use iroh::{endpoint::get_remote_node_id, Endpoint, NodeId};
 use rand::Rng;
 use redb::{ReadableTable, RedbValue};
 use serde::{Deserialize, Serialize};

@@ -9,12 +9,12 @@ use anyhow::Context;
 use args::QueryDhtArgs;
 use clap::Parser;
 use futures::StreamExt;
+use iroh::endpoint;
 use iroh_mainline_content_discovery::{
     create_quinn_client,
     protocol::{AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce},
     to_infohash, UdpDiscovery,
 };
-use iroh::endpoint;
 use tokio::io::AsyncWriteExt;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -167,9 +167,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Loads a [`SecretKey`] from the provided file.
-pub async fn load_secret_key(
-    key_path: std::path::PathBuf,
-) -> anyhow::Result<iroh::key::SecretKey> {
+pub async fn load_secret_key(key_path: std::path::PathBuf) -> anyhow::Result<iroh::key::SecretKey> {
     if key_path.exists() {
         let keystr = tokio::fs::read(key_path).await?;
         let secret_key =

@@ -11,6 +11,7 @@ use std::{
 
 use anyhow::Context;
 use clap::Parser;
+use iroh::{discovery::pkarr::dht::DhtDiscovery, endpoint::get_remote_node_id, Endpoint, NodeId};
 use iroh_mainline_content_discovery::protocol::ALPN;
 use iroh_mainline_tracker::{
     io::{
@@ -19,9 +20,6 @@ use iroh_mainline_tracker::{
     },
     options::Options,
     tracker::Tracker,
-};
-use iroh::{
-    discovery::pkarr::dht::DhtDiscovery, endpoint::get_remote_node_id, Endpoint, NodeId,
 };
 
 use tokio::io::AsyncWriteExt;
@@ -191,9 +189,7 @@ async fn main() -> anyhow::Result<()> {
 
 /// Returns default server configuration along with its certificate.
 #[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
-fn configure_server(
-    secret_key: &iroh::key::SecretKey,
-) -> anyhow::Result<iroh_quinn::ServerConfig> {
+fn configure_server(secret_key: &iroh::key::SecretKey) -> anyhow::Result<iroh_quinn::ServerConfig> {
     make_server_config(secret_key, 8, 1024, vec![ALPN.to_vec()])
 }
 
@@ -218,9 +214,7 @@ pub fn make_server_config(
 }
 
 /// Loads a [`SecretKey`] from the provided file.
-pub async fn load_secret_key(
-    key_path: std::path::PathBuf,
-) -> anyhow::Result<iroh::key::SecretKey> {
+pub async fn load_secret_key(key_path: std::path::PathBuf) -> anyhow::Result<iroh::key::SecretKey> {
     if key_path.exists() {
         let keystr = tokio::fs::read(key_path).await?;
         let secret_key =

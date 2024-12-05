@@ -14,11 +14,11 @@ use futures::{
     stream::FusedStream,
     FutureExt, Stream, StreamExt,
 };
-use iroh_blobs::HashAndFormat;
 use iroh::{
     discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, Discovery},
     Endpoint, NodeId,
 };
+use iroh_blobs::HashAndFormat;
 
 use crate::protocol::{
     AnnounceKind, Query, QueryResponse, Request, Response, SignedAnnounce, ALPN, REQUEST_SIZE_LIMIT,
