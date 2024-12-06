@@ -5,7 +5,6 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::Context;
 use args::QueryDhtArgs;
 use clap::Parser;
 use futures::StreamExt;
@@ -15,7 +14,6 @@ use iroh_mainline_content_discovery::{
     protocol::{AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce},
     to_infohash, UdpDiscovery,
 };
-use tokio::io::AsyncWriteExt;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::args::{AnnounceArgs, Args, Commands, QueryArgs};
@@ -163,43 +161,5 @@ async fn main() -> anyhow::Result<()> {
         Commands::Announce(args) => announce(args).await,
         Commands::Query(args) => query(args).await,
         Commands::QueryDht(args) => query_dht(args).await,
-    }
-}
-
-/// Loads a [`SecretKey`] from the provided file.
-pub async fn load_secret_key(key_path: std::path::PathBuf) -> anyhow::Result<iroh::key::SecretKey> {
-    if key_path.exists() {
-        let keystr = tokio::fs::read(key_path).await?;
-        let secret_key =
-            iroh::key::SecretKey::try_from_openssh(keystr).context("invalid keyfile")?;
-        Ok(secret_key)
-    } else {
-        let secret_key = iroh::key::SecretKey::generate();
-        let ser_key = secret_key.to_openssh()?;
-
-        // Try to canoncialize if possible
-        let key_path = key_path.canonicalize().unwrap_or(key_path);
-        let key_path_parent = key_path.parent().ok_or_else(|| {
-            anyhow::anyhow!("no parent directory found for '{}'", key_path.display())
-        })?;
-        tokio::fs::create_dir_all(&key_path_parent).await?;
-
-        // write to tempfile
-        let (file, temp_file_path) = tempfile::NamedTempFile::new_in(key_path_parent)
-            .context("unable to create tempfile")?
-            .into_parts();
-        let mut file = tokio::fs::File::from_std(file);
-        file.write_all(ser_key.as_bytes())
-            .await
-            .context("unable to write keyfile")?;
-        file.flush().await?;
-        drop(file);
-
-        // move file
-        tokio::fs::rename(temp_file_path, key_path)
-            .await
-            .context("failed to rename keyfile")?;
-
-        Ok(secret_key)
     }
 }
