@@ -1,5 +1,6 @@
 use anyhow::Context;
 use bao_tree::{io::outboard::EmptyOutboard, BaoTree, ChunkRanges};
+use iroh::endpoint::{Connecting, RecvStream, SendStream};
 use iroh_blobs::{
     protocol::RangeSpec,
     provider::{send_blob, EventSender},
@@ -7,7 +8,6 @@ use iroh_blobs::{
     BlobFormat, IROH_BLOCK_SIZE,
 };
 use iroh_io::{TokioStreamReader, TokioStreamWriter};
-use iroh_net::endpoint::{Connecting, RecvStream, SendStream};
 use multihash_codetable::MultihashDigest;
 use tokio::io::AsyncReadExt;
 

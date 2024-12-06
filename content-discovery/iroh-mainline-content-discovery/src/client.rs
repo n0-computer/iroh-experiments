@@ -14,11 +14,11 @@ use futures::{
     stream::FusedStream,
     FutureExt, Stream, StreamExt,
 };
-use iroh_blobs::HashAndFormat;
-use iroh_net::{
+use iroh::{
     discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, Discovery},
     Endpoint, NodeId,
 };
+use iroh_blobs::HashAndFormat;
 
 use crate::protocol::{
     AnnounceKind, Query, QueryResponse, Request, Response, SignedAnnounce, ALPN, REQUEST_SIZE_LIMIT,
@@ -33,7 +33,7 @@ use crate::protocol::{
 /// `content` is the content to announce.
 /// `kind` is the kind of the announcement. We can claim to have the complete data or only some of it.
 pub async fn announce(
-    connection: iroh_net::endpoint::Connection,
+    connection: iroh::endpoint::Connection,
     signed_announce: SignedAnnounce,
 ) -> anyhow::Result<()> {
     let (mut send, mut recv) = connection.open_bi().await?;
@@ -186,7 +186,7 @@ pub fn announce_dht(
 
 /// Assume an existing connection to a tracker and query it for peers for some content.
 pub async fn query(
-    connection: iroh_net::endpoint::Connection,
+    connection: iroh::endpoint::Connection,
     args: Query,
 ) -> anyhow::Result<QueryResponse> {
     tracing::info!("connected to {:?}", connection.remote_address());
@@ -210,9 +210,9 @@ pub fn create_quinn_client(
     alpn_protocols: Vec<Vec<u8>>,
     keylog: bool,
 ) -> anyhow::Result<iroh_quinn::Endpoint> {
-    let secret_key = iroh_net::key::SecretKey::generate();
+    let secret_key = iroh::key::SecretKey::generate();
     let tls_client_config =
-        iroh_net::tls::make_client_config(&secret_key, None, alpn_protocols, keylog)?;
+        iroh::tls::make_client_config(&secret_key, None, alpn_protocols, keylog)?;
     let mut client_config = iroh_quinn::ClientConfig::new(Arc::new(tls_client_config));
     let mut endpoint = iroh_quinn::Endpoint::client(bind_addr)?;
     let mut transport_config = iroh_quinn::TransportConfig::default();
@@ -223,7 +223,7 @@ pub fn create_quinn_client(
 }
 
 async fn create_endpoint(
-    key: iroh_net::key::SecretKey,
+    key: iroh::key::SecretKey,
     ipv4_addr: SocketAddrV4,
     ipv6_addr: SocketAddrV6,
     publish: bool,
@@ -233,7 +233,7 @@ async fn create_endpoint(
     } else {
         Box::new(DnsDiscovery::n0_dns())
     };
-    iroh_net::Endpoint::builder()
+    iroh::Endpoint::builder()
         .secret_key(key)
         .discovery(mainline_discovery)
         .alpns(vec![ALPN.to_vec()])
@@ -284,7 +284,7 @@ pub async fn connect(
     tracker: &TrackerId,
     local_ipv4_addr: SocketAddrV4,
     local_ipv6_addr: SocketAddrV6,
-) -> anyhow::Result<iroh_net::endpoint::Connection> {
+) -> anyhow::Result<iroh::endpoint::Connection> {
     match tracker {
         TrackerId::Quinn(tracker) => connect_socket(*tracker, local_ipv4_addr.into()).await,
         TrackerId::Iroh(tracker) => connect_iroh(*tracker, local_ipv4_addr, local_ipv6_addr).await,
@@ -297,11 +297,11 @@ async fn connect_iroh(
     tracker: NodeId,
     local_ipv4_addr: SocketAddrV4,
     local_ipv6_addr: SocketAddrV6,
-) -> anyhow::Result<iroh_net::endpoint::Connection> {
+) -> anyhow::Result<iroh::endpoint::Connection> {
     // todo: uncomment once the connection problems are fixed
     // for now, a random node id is more reliable.
     // let key = load_secret_key(tracker_path(CLIENT_KEY)?).await?;
-    let key = iroh_net::key::SecretKey::generate();
+    let key = iroh::key::SecretKey::generate();
     let endpoint = create_endpoint(key, local_ipv4_addr, local_ipv6_addr, false).await?;
     tracing::info!("trying to connect to tracker at {:?}", tracker);
     let connection = endpoint.connect(tracker, ALPN).await?;
@@ -312,7 +312,7 @@ async fn connect_iroh(
 async fn connect_socket(
     tracker: SocketAddr,
     local_addr: SocketAddr,
-) -> anyhow::Result<iroh_net::endpoint::Connection> {
+) -> anyhow::Result<iroh::endpoint::Connection> {
     let endpoint = create_quinn_client(local_addr, vec![ALPN.to_vec()], false)?;
     tracing::info!("trying to connect to tracker at {:?}", tracker);
     let connection = endpoint.connect(tracker, "localhost")?.await?;

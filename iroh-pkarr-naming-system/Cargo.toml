@@ -8,9 +8,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.79"
 derive_more = "0.99.17"
-iroh = "0.28"
-iroh-blobs = "0.28"
-iroh-net = "0.28"
+iroh = "0.29"
+iroh-blobs = "0.29"
 pkarr = { version = "1.0.1", features = ["async", "dht"] }
 tokio = "1.35.1"
 tokio-util = "0.7.12"

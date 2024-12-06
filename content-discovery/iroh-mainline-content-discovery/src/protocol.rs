@@ -4,8 +4,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use iroh::NodeId;
 use iroh_blobs::HashAndFormat;
-use iroh_net::NodeId;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -118,7 +118,7 @@ impl Deref for SignedAnnounce {
 
 impl SignedAnnounce {
     /// Create a new signed announce.
-    pub fn new(announce: Announce, secret_key: &iroh_net::key::SecretKey) -> anyhow::Result<Self> {
+    pub fn new(announce: Announce, secret_key: &iroh::key::SecretKey) -> anyhow::Result<Self> {
         let announce_bytes = postcard::to_allocvec(&announce)?;
         let signature = secret_key.sign(&announce_bytes).to_bytes();
         Ok(Self {
@@ -130,7 +130,7 @@ impl SignedAnnounce {
     /// Verify the announce, and return the announce if it's valid.
     pub fn verify(&self) -> anyhow::Result<()> {
         let announce_bytes = postcard::to_allocvec(&self.announce)?;
-        let signature = iroh_net::key::Signature::from_bytes(&self.signature);
+        let signature = iroh::key::Signature::from_bytes(&self.signature);
         self.announce.host.verify(&announce_bytes, &signature)?;
         Ok(())
     }
