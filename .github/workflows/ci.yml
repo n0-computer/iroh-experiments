@@ -13,7 +13,7 @@ env:
   RUSTFLAGS: -Dwarnings
   RUSTDOCFLAGS: -Dwarnings
   MSRV: "1.75"
-  RS_EXAMPLES_LIST: "content-discovery,iroh-pkarr-naming-system,iroh-s3-bao-store,iroh-dag-sync"
+  RS_EXAMPLES_LIST: "content-discovery,iroh-pkarr-naming-system,iroh-s3-bao-store,iroh-dag-sync,h3-iroh"
   IROH_FORCE_STAGING_RELAYS: "1"
 
 jobs:
