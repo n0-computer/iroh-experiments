@@ -7,7 +7,7 @@ use axum::response::Html;
 use axum::routing::get;
 use axum::Router;
 use futures::StreamExt;
-use iroh_net::ticket::NodeTicket;
+use iroh::ticket::NodeTicket;
 use tracing::info;
 
 #[tokio::main]
@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new().route("/", get(handler));
 
-    let ep = iroh_net::Endpoint::builder()
+    let ep = iroh::Endpoint::builder()
         .alpns(vec![b"iroh+h3".to_vec()])
         .bind()
         .await?;

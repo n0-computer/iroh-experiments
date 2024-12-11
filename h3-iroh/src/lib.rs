@@ -14,11 +14,11 @@ use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, stream, Stream, StreamExt};
 use h3::ext::Datagram;
 use h3::quic::{self, Error, StreamId, WriteBuf};
-use iroh_net::endpoint::{self, ApplicationClose, ClosedStream, ReadDatagram};
+use iroh::endpoint::{self, ApplicationClose, ClosedStream, ReadDatagram};
 use tokio_util::sync::ReusableBoxFuture;
 use tracing::instrument;
 
-pub use iroh_net::endpoint::{AcceptBi, AcceptUni, Endpoint, OpenBi, OpenUni, VarInt, WriteError};
+pub use iroh::endpoint::{AcceptBi, AcceptUni, Endpoint, OpenBi, OpenUni, VarInt, WriteError};
 
 #[cfg(feature = "axum")]
 pub mod axum;
@@ -30,7 +30,7 @@ type BoxStreamSync<'a, T> = Pin<Box<dyn Stream<Item = T> + Sync + Send + 'a>>;
 ///
 /// Implements a [`quic::Connection`] backed by a [`endpoint::Connection`].
 pub struct Connection {
-    conn: iroh_net::endpoint::Connection,
+    conn: iroh::endpoint::Connection,
     incoming_bi: BoxStreamSync<'static, <AcceptBi<'static> as Future>::Output>,
     opening_bi: Option<BoxStreamSync<'static, <OpenBi<'static> as Future>::Output>>,
     incoming_uni: BoxStreamSync<'static, <AcceptUni<'static> as Future>::Output>,
@@ -40,7 +40,7 @@ pub struct Connection {
 
 impl Connection {
     /// Create a [`Connection`] from a [`endpoint::Connection`]
-    pub fn new(conn: iroh_net::endpoint::Connection) -> Self {
+    pub fn new(conn: iroh::endpoint::Connection) -> Self {
         Self {
             conn: conn.clone(),
             incoming_bi: Box::pin(stream::unfold(conn.clone(), |conn| async {

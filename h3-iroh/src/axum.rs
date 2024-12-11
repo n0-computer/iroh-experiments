@@ -4,7 +4,7 @@ use anyhow::Result;
 use axum::Router;
 use bytes::{Buf, Bytes};
 use http::{Request, Response, Version};
-use iroh_net::Endpoint;
+use iroh::Endpoint;
 use tracing::{debug, error, info_span, trace, warn, Instrument};
 
 use h3::{error::ErrorLevel, quic::BidiStream, server::RequestStream};
@@ -31,11 +31,11 @@ pub async fn serve(endpoint: Endpoint, router: axum::Router) -> Result<()> {
             .instrument(info_span!("h3-connection")),
         );
     }
-    endpoint.close(0u8.into(), b"server exiting").await?;
+    endpoint.close().await?;
     Ok(())
 }
 
-async fn handle_connection(incoming: iroh_net::endpoint::Incoming, router: Router) -> Result<()> {
+async fn handle_connection(incoming: iroh::endpoint::Incoming, router: Router) -> Result<()> {
     debug!("new connection established");
     let conn = incoming.await?;
     let conn = crate::Connection::new(conn);
