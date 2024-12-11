@@ -3,8 +3,8 @@ use std::str::FromStr;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use iroh_net::ticket::NodeTicket;
-use iroh_net::NodeAddr;
+use iroh::ticket::NodeTicket;
+use iroh::NodeAddr;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
     let ticket = NodeTicket::from_str(ticket)?;
     let addr: NodeAddr = ticket.into();
 
-    let ep = iroh_net::Endpoint::builder()
+    let ep = iroh::Endpoint::builder()
         .keylog(args.keylogfile)
         .bind()
         .await?;
@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
     drive_res?;
 
     info!("closing ep");
-    ep.close(1u8.into(), b"ep closing").await?;
+    ep.close().await?;
     info!("ep closed");
 
     Ok(())

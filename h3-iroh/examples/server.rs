@@ -13,8 +13,8 @@ use h3::error::ErrorLevel;
 use h3::quic::BidiStream;
 use h3::server::RequestStream;
 use http::{Request, StatusCode};
-use iroh_net::endpoint::{self, Incoming};
-use iroh_net::ticket::NodeTicket;
+use iroh::endpoint::{self, Incoming};
+use iroh::ticket::NodeTicket;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, error, field, info, info_span, Instrument, Span};
@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
         Arc::new(None)
     };
 
-    let ep = iroh_net::Endpoint::builder()
+    let ep = iroh::Endpoint::builder()
         .alpns(vec![b"iroh+h3".to_vec()])
         .bind()
         .await?;
@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
             .instrument(info_span!("conn", remote_node_id = field::Empty))
         });
     }
-    ep.close(1u8.into(), b"ep closing").await?;
+    ep.close().await?;
 
     Ok(())
 }
