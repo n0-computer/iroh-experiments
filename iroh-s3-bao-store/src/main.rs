@@ -3,10 +3,11 @@ use clap::{Parser, Subcommand};
 use indicatif::{
     HumanBytes, HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle,
 };
-use iroh::{key::SecretKey, ticket::BlobTicket, Endpoint, NodeAddr};
-use iroh_blobs::util::local_pool::LocalPool;
+use iroh::{Endpoint, NodeAddr, SecretKey};
 use iroh_blobs::{
     provider::{self, handle_connection, CustomEventSender, EventSender},
+    ticket::BlobTicket,
+    util::local_pool::LocalPool,
     BlobFormat,
 };
 use iroh_io::{AsyncSliceReaderExt, HttpAdapter};
@@ -127,7 +128,7 @@ fn get_or_create_secret(print: bool) -> anyhow::Result<SecretKey> {
     match std::env::var("IROH_SECRET") {
         Ok(secret) => SecretKey::from_str(&secret).context("invalid secret"),
         Err(_) => {
-            let key = SecretKey::generate();
+            let key = SecretKey::generate(rand::thread_rng());
             if print {
                 eprintln!("using secret key {}", key);
             }
@@ -244,9 +245,7 @@ async fn serve_db(
     // wait for the endpoint to be ready
     let endpoint = builder.bind().await?;
     // wait for the endpoint to figure out its address before making a ticket
-    while endpoint.home_relay().is_none() {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    endpoint.home_relay().initialized().await?;
     // make a ticket
     let addr = endpoint.node_addr().await?;
     on_addr(addr)?;
