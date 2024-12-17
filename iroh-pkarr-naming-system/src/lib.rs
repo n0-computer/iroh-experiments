@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Context;
-use iroh::key::SecretKey;
+use iroh::SecretKey;
 use iroh_blobs::HashAndFormat;
 use pkarr::{
     dns::{
@@ -50,7 +50,7 @@ pub struct IPNS(Arc<Inner>);
 #[derive(Debug, Default)]
 struct Inner {
     pkarr: Arc<pkarr::PkarrClient>,
-    packets: Mutex<BTreeMap<iroh::key::PublicKey, (Record, AbortOnDropHandle<()>)>>,
+    packets: Mutex<BTreeMap<iroh::PublicKey, (Record, AbortOnDropHandle<()>)>>,
 }
 
 impl IPNS {
@@ -89,10 +89,7 @@ impl IPNS {
     }
 
     /// Resolve a record for a public key.
-    pub async fn resolve(
-        &self,
-        public_key: iroh::key::PublicKey,
-    ) -> anyhow::Result<Option<Record>> {
+    pub async fn resolve(&self, public_key: iroh::PublicKey) -> anyhow::Result<Option<Record>> {
         let public_key =
             pkarr::PublicKey::try_from(*public_key.as_bytes()).context("invalid public key")?;
         let packet = self.0.pkarr.resolve(public_key).await;
