@@ -1,13 +1,5 @@
 use anyhow::anyhow;
-use iroh::{key::SecretKey, Endpoint};
-
-// Wait for the endpoint to figure out its relay address.
-pub async fn wait_for_relay(endpoint: &Endpoint) -> anyhow::Result<()> {
-    while endpoint.home_relay().is_none() {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    Ok(())
-}
+use iroh::SecretKey;
 
 /// Get the secret key from a file or generate a new one.
 pub fn get_or_create_secret() -> anyhow::Result<SecretKey> {
@@ -19,7 +11,7 @@ pub fn get_or_create_secret() -> anyhow::Result<SecretKey> {
             Ok(secret)
         }
         Err(_) => {
-            let secret = SecretKey::generate();
+            let secret = SecretKey::generate(rand::thread_rng());
             std::fs::write(FILENAME, secret.to_bytes())?;
             Ok(secret)
         }

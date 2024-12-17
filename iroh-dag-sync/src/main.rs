@@ -6,8 +6,8 @@ use clap::Parser;
 use futures_lite::StreamExt;
 use ipld_core::codec::Links;
 use iroh::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
-use iroh::ticket::NodeTicket;
 use iroh::NodeAddr;
+use iroh_base::ticket::NodeTicket;
 use iroh_blobs::store::{Map, MapEntry};
 use iroh_blobs::{store::Store, BlobFormat};
 use iroh_car::CarReader;
@@ -19,7 +19,6 @@ use tables::{ReadOnlyTables, ReadableTables, Tables};
 use tokio::io::AsyncWriteExt;
 use tokio_util::task::LocalPoolHandle;
 use traversal::{get_traversal, Traversal};
-use util::wait_for_relay;
 
 mod args;
 mod protocol;
@@ -127,10 +126,13 @@ async fn main() -> anyhow::Result<()> {
         args::SubCommand::Node(args) => {
             let endpoint =
                 create_endpoint(args.net.iroh_ipv4_addr, args.net.iroh_ipv6_addr).await?;
-            wait_for_relay(&endpoint).await?;
+            endpoint.home_relay().initialized().await?;
             let addr = endpoint.node_addr().await?;
             println!("Node id:\n{}", addr.node_id);
-            println!("Listening on {:#?}", addr.info);
+            println!(
+                "Listening on {:#?}, {:#?}",
+                addr.relay_url, addr.direct_addresses
+            );
             println!("ticket:\n{}", NodeTicket::new(addr.clone()));
             while let Some(incoming) = endpoint.accept().await {
                 let mut connecting = incoming.accept()?;

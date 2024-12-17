@@ -3,8 +3,8 @@ use std::str::FromStr;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use iroh::ticket::NodeTicket;
 use iroh::NodeAddr;
+use iroh_base::ticket::NodeTicket;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 

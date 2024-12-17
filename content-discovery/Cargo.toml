@@ -3,6 +3,7 @@ members = [
   "iroh-mainline-content-discovery",
   "iroh-mainline-content-discovery-cli",
   "iroh-mainline-tracker",
+  "tls",
 ]
 resolver = "2"
 
@@ -26,5 +27,6 @@ missing_debug_implementations = "warn"
 unused-async = "warn"
 
 [workspace.dependencies]
-iroh = "0.29"
-iroh-blobs = "0.29"
+iroh = "0.30"
+iroh-base = "0.30"
+iroh-blobs = { version = "0.30", features = ["rpc"] }

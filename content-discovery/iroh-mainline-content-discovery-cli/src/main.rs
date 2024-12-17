@@ -24,7 +24,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
         eprintln!("ANNOUNCE_SECRET environment variable must be set to a valid secret key");
         anyhow::bail!("ANNOUNCE_SECRET env var not set");
     };
-    let Ok(key) = iroh::key::SecretKey::from_str(&key) else {
+    let Ok(key) = iroh::SecretKey::from_str(&key) else {
         anyhow::bail!("ANNOUNCE_SECRET env var is not a valid secret key");
     };
     let content = args.content.hash_and_format();

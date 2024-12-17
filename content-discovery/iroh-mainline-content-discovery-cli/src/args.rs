@@ -1,6 +1,7 @@
 //! Command line arguments.
 use clap::{Parser, Subcommand};
-use iroh::{ticket::BlobTicket, NodeId};
+use iroh::NodeId;
+use iroh_blobs::ticket::BlobTicket;
 use iroh_blobs::{Hash, HashAndFormat};
 use std::{
     fmt::Display,

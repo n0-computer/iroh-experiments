@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iroh-blobs = "0.29"
-iroh-gossip = "0.29"
-iroh = "0.29"
+iroh-blobs = "0.30"
+iroh-gossip = "0.30"
+iroh = "0.30"
+iroh-base = { version ="0.30", features = ["ticket"] }
 iroh-car = "0.5.0"
 redb = "2.1.1"
 clap = { version = "4.5.7", features = ["derive"] }
@@ -24,6 +25,7 @@ iroh-quinn = "0.12"
 bytes = "1.6.0"
 hex = "0.4.3"
 ron = "0.8.1"
+rand = "0.8.5"
 tracing = "0.1.40"
 serde_bytes = "0.11.14"
 ipld-core = "0.4.1"

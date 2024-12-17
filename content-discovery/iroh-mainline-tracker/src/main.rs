@@ -62,7 +62,7 @@ async fn await_relay_region(endpoint: &Endpoint) -> anyhow::Result<()> {
 }
 
 async fn create_endpoint(
-    key: iroh::key::SecretKey,
+    key: iroh::SecretKey,
     ipv4_addr: SocketAddrV4,
     publish: bool,
 ) -> anyhow::Result<Endpoint> {
@@ -187,18 +187,18 @@ async fn main() -> anyhow::Result<()> {
 
 /// Returns default server configuration along with its certificate.
 #[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
-fn configure_server(secret_key: &iroh::key::SecretKey) -> anyhow::Result<iroh_quinn::ServerConfig> {
+fn configure_server(secret_key: &iroh::SecretKey) -> anyhow::Result<iroh_quinn::ServerConfig> {
     make_server_config(secret_key, 8, 1024, vec![ALPN.to_vec()])
 }
 
 /// Create a [`quinn::ServerConfig`] with the given secret key and limits.
 pub fn make_server_config(
-    secret_key: &iroh::key::SecretKey,
+    secret_key: &iroh::SecretKey,
     max_streams: u64,
     max_connections: u32,
     alpn_protocols: Vec<Vec<u8>>,
 ) -> anyhow::Result<iroh_quinn::ServerConfig> {
-    let tls_server_config = iroh::tls::make_server_config(secret_key, alpn_protocols, false)?;
+    let tls_server_config = tls::make_server_config(secret_key, alpn_protocols, false)?;
     let mut server_config = iroh_quinn::ServerConfig::with_crypto(Arc::new(tls_server_config));
     let mut transport_config = iroh_quinn::TransportConfig::default();
     transport_config
