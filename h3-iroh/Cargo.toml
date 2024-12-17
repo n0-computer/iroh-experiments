@@ -15,7 +15,8 @@ http-body = { version = "1", optional = true }
 http-body-util = { version = "0.1", optional = true }
 hyper = { version = "1.5", optional = true }
 hyper-util = { version = "0.1", optional = true }
-iroh = "0.29"
+iroh = "0.30"
+iroh-base = { version = "0.30", features = ["ticket"] }
 tokio = { version = "1", features = ["io-util"], default-features = false}
 tokio-util = "0.7"
 tower = { version = "0.5", optional = true }
@@ -38,3 +39,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 http = "1"
 tracing-subscriber = "0.3"
+
+[[example]]
+name = "server-axum"
+required-features = ["axum"]

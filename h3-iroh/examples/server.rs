@@ -8,13 +8,12 @@ use std::sync::Arc;
 use anyhow::{bail, Result};
 use bytes::{Bytes, BytesMut};
 use clap::Parser;
-use futures::StreamExt;
 use h3::error::ErrorLevel;
 use h3::quic::BidiStream;
 use h3::server::RequestStream;
 use http::{Request, StatusCode};
 use iroh::endpoint::{self, Incoming};
-use iroh::ticket::NodeTicket;
+use iroh_base::ticket::NodeTicket;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, error, field, info, info_span, Instrument, Span};
@@ -55,8 +54,8 @@ async fn main() -> Result<()> {
     info!("accepting connections on node: {}", ep.node_id());
 
     // Wait for direct addresses and a RelayUrl before printing a NodeTicket.
-    ep.direct_addresses().next().await;
-    ep.watch_home_relay().next().await;
+    ep.direct_addresses().initialized().await?;
+    ep.home_relay().initialized().await?;
     let ticket = NodeTicket::new(ep.node_addr().await?);
     info!("node ticket: {ticket}");
     info!("run e.g.: cargo run --example client -- iroh+h3://{ticket}/Cargo.toml");

@@ -6,8 +6,7 @@ use anyhow::Result;
 use axum::response::Html;
 use axum::routing::get;
 use axum::Router;
-use futures::StreamExt;
-use iroh::ticket::NodeTicket;
+use iroh_base::ticket::NodeTicket;
 use tracing::info;
 
 #[tokio::main]
@@ -23,8 +22,8 @@ async fn main() -> Result<()> {
     info!("accepting connections on node: {}", ep.node_id());
 
     // Wait for direct addresses and a RelayUrl before printing a NodeTicket.
-    ep.direct_addresses().next().await;
-    ep.watch_home_relay().next().await;
+    ep.direct_addresses().initialized().await?;
+    ep.home_relay().initialized().await?;
     let ticket = NodeTicket::new(ep.node_addr().await?);
     info!("node ticket: {ticket}");
     info!("run: cargo run --example client -- iroh+h3://{ticket}/");
