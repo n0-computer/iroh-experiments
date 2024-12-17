@@ -210,7 +210,7 @@ pub fn create_quinn_client(
     alpn_protocols: Vec<Vec<u8>>,
     keylog: bool,
 ) -> anyhow::Result<iroh_quinn::Endpoint> {
-    let secret_key = iroh::key::SecretKey::generate();
+    let secret_key = iroh::SecretKey::generate(rand::thread_rng());
     let tls_client_config =
         iroh::tls::make_client_config(&secret_key, None, alpn_protocols, keylog)?;
     let mut client_config = iroh_quinn::ClientConfig::new(Arc::new(tls_client_config));
@@ -223,7 +223,7 @@ pub fn create_quinn_client(
 }
 
 async fn create_endpoint(
-    key: iroh::key::SecretKey,
+    key: iroh::SecretKey,
     ipv4_addr: SocketAddrV4,
     ipv6_addr: SocketAddrV6,
     publish: bool,
@@ -301,7 +301,7 @@ async fn connect_iroh(
     // todo: uncomment once the connection problems are fixed
     // for now, a random node id is more reliable.
     // let key = load_secret_key(tracker_path(CLIENT_KEY)?).await?;
-    let key = iroh::key::SecretKey::generate();
+    let key = iroh::SecretKey::generate(rand::thread_rng());
     let endpoint = create_endpoint(key, local_ipv4_addr, local_ipv6_addr, false).await?;
     tracing::info!("trying to connect to tracker at {:?}", tracker);
     let connection = endpoint.connect(tracker, ALPN).await?;
