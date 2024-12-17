@@ -211,8 +211,7 @@ pub fn create_quinn_client(
     keylog: bool,
 ) -> anyhow::Result<iroh_quinn::Endpoint> {
     let secret_key = iroh::SecretKey::generate(rand::thread_rng());
-    let tls_client_config =
-        iroh::tls::make_client_config(&secret_key, None, alpn_protocols, keylog)?;
+    let tls_client_config = tls::make_client_config(&secret_key, None, alpn_protocols, keylog)?;
     let mut client_config = iroh_quinn::ClientConfig::new(Arc::new(tls_client_config));
     let mut endpoint = iroh_quinn::Endpoint::client(bind_addr)?;
     let mut transport_config = iroh_quinn::TransportConfig::default();

@@ -41,6 +41,7 @@ url = "2.5.0"
 flume = "0.11.0"
 genawaiter = { version = "0.99.1", features = ["futures03"] }
 iroh-mainline-content-discovery = { path = "../iroh-mainline-content-discovery", features = ["client"] }
+tls = { path = "../tls" }
 
 clap = { version = "4", features = ["derive"], optional = true }
 serde-big-array = "0.5.1"
