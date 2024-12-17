@@ -28,7 +28,4 @@ unused-async = "warn"
 [workspace.dependencies]
 iroh = "0.30"
 iroh-base = "0.30"
-iroh-blobs = "0.29"
-
-[patch.crates-io]
-iroh-blobs = { git = "https://github.com/n0-computer/iroh-blobs", branch = "iroh-v0-30-0" }
+iroh-blobs = "0.30"
