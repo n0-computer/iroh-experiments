@@ -30,3 +30,8 @@ unused-async = "warn"
 iroh = "0.30"
 iroh-base = "0.30"
 iroh-blobs = { version = "0.30", features = ["rpc"] }
+
+[patch.crates-io]
+iroh = { git = "https://github.com/n0-computer/iroh.git", branch = "iroh-0-31-0" }
+iroh-base = { git = "https://github.com/n0-computer/iroh.git", branch = "iroh-0-31-0" }
+iroh-blobs = { git = "https://github.com/n0-computer/iroh-blobs.git", branch = "iroh-0-31-0" }
