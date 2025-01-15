@@ -42,7 +42,7 @@ pub trait Traversal {
 
 pub struct BoxedTraversal<'a, D>(Pin<Box<dyn BoxableTraversal<D> + Unpin + 'a>>);
 
-impl<'a, D> Traversal for BoxedTraversal<'a, D> {
+impl<D> Traversal for BoxedTraversal<'_, D> {
     type Db = D;
 
     fn roots(&self) -> Vec<Cid> {

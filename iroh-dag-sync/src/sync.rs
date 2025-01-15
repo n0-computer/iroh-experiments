@@ -105,9 +105,9 @@ where
     Ok(())
 }
 
-pub async fn handle_sync_response<'a>(
+pub async fn handle_sync_response(
     recv: RecvStream,
-    tables: &mut Tables<'a>,
+    tables: &mut Tables<'_>,
     store: &Store,
     traversal: TraversalOpts,
 ) -> anyhow::Result<()> {
