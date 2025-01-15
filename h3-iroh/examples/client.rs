@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
     drive_res?;
 
     info!("closing ep");
-    ep.close().await?;
+    ep.close().await;
     info!("ep closed");
 
     Ok(())

@@ -44,16 +44,25 @@ impl Record {
 }
 
 /// An iroh pkarr naming system publisher constantly republishes any number of records.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct IPNS(Arc<Inner>);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Inner {
     pkarr: Arc<pkarr::PkarrClient>,
     packets: Mutex<BTreeMap<iroh::PublicKey, (Record, AbortOnDropHandle<()>)>>,
 }
 
 impl IPNS {
+    /// Create a new default IPNS publisher.
+    pub fn new() -> anyhow::Result<Self> {
+        let inner = Inner {
+            pkarr: Arc::new(pkarr::PkarrClientBuilder::default().build()?),
+            packets: Mutex::new(BTreeMap::default()),
+        };
+        Ok(Self(Arc::new(inner)))
+    }
+
     /// Publish a record for a keypair, or stop publishing if `record` is `None`.
     pub async fn publish(
         &self,
@@ -67,10 +76,10 @@ impl IPNS {
             let publish_task = tokio::spawn(async move {
                 tokio::time::sleep(INITIAL_PUBLISH_DELAY).await;
                 loop {
-                    let res = pkarr.publish(&signed_packet).await;
+                    let res = pkarr.publish(&signed_packet);
                     match res {
-                        Ok(sqm) => {
-                            tracing::info!("Published record: {}", sqm.stored_at().len());
+                        Ok(()) => {
+                            tracing::info!("Published record");
                         }
                         Err(e) => {
                             tracing::warn!("Failed to publish record: {}", e);
@@ -91,8 +100,8 @@ impl IPNS {
     /// Resolve a record for a public key.
     pub async fn resolve(&self, public_key: iroh::PublicKey) -> anyhow::Result<Option<Record>> {
         let public_key =
-            pkarr::PublicKey::try_from(*public_key.as_bytes()).context("invalid public key")?;
-        let packet = self.0.pkarr.resolve(public_key).await;
+            pkarr::PublicKey::try_from(public_key.as_bytes()).context("invalid public key")?;
+        let packet = self.0.pkarr.resolve(&public_key)?;
         packet.map(Self::to_record).transpose()
     }
 

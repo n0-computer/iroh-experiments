@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
             .instrument(info_span!("conn", remote_node_id = field::Empty))
         });
     }
-    ep.close().await?;
+    ep.close().await;
 
     Ok(())
 }
