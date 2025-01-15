@@ -27,6 +27,6 @@ missing_debug_implementations = "warn"
 unused-async = "warn"
 
 [workspace.dependencies]
-iroh = "0.30"
-iroh-base = "0.30"
-iroh-blobs = { version = "0.30", features = ["rpc"] }
+iroh = "0.31"
+iroh-base = "0.31"
+iroh-blobs = { version = "0.31", features = ["rpc"] }

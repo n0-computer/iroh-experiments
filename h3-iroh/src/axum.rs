@@ -31,7 +31,7 @@ pub async fn serve(endpoint: Endpoint, router: axum::Router) -> Result<()> {
             .instrument(info_span!("h3-connection")),
         );
     }
-    endpoint.close().await?;
+    endpoint.close().await;
     Ok(())
 }
 
