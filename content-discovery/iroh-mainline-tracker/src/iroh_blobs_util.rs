@@ -19,7 +19,7 @@ use rand::Rng;
 /// This is just reading the size header and then immediately closing the connection.
 /// It can be used to check if a peer has any data at all.
 pub async fn unverified_size(
-    connection: &iroh_quinn::Connection,
+    connection: &iroh::endpoint::Connection,
     hash: &Hash,
 ) -> anyhow::Result<(u64, Stats)> {
     let request = iroh_blobs::protocol::GetRequest::new(
@@ -42,7 +42,7 @@ pub async fn unverified_size(
 /// This asks for the last chunk of the blob and validates the response.
 /// Note that this does not validate that the peer has all the data.
 pub async fn verified_size(
-    connection: &iroh_quinn::Connection,
+    connection: &iroh::endpoint::Connection,
     hash: &Hash,
 ) -> anyhow::Result<(u64, Stats)> {
     tracing::debug!("Getting verified size of {}", hash.to_hex());
@@ -81,7 +81,7 @@ pub async fn verified_size(
 }
 
 pub async fn get_hash_seq_and_sizes(
-    connection: &iroh_quinn::Connection,
+    connection: &iroh::endpoint::Connection,
     hash: &Hash,
     max_size: u64,
 ) -> anyhow::Result<(HashSeq, Arc<[u64]>)> {
@@ -135,7 +135,7 @@ pub async fn get_hash_seq_and_sizes(
 
 /// Probe for a single chunk of a blob.
 pub async fn chunk_probe(
-    connection: &iroh_quinn::Connection,
+    connection: &iroh::endpoint::Connection,
     hash: &Hash,
     chunk: ChunkNum,
 ) -> anyhow::Result<Stats> {

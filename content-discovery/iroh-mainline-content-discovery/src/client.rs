@@ -32,7 +32,30 @@ use crate::protocol::{
 /// `tracker` is the node id of the tracker to announce to. It must understand the [TRACKER_ALPN] protocol.
 /// `content` is the content to announce.
 /// `kind` is the kind of the announcement. We can claim to have the complete data or only some of it.
-pub async fn announce(
+pub async fn announce_quinn(
+    connection: iroh_quinn::Connection,
+    signed_announce: SignedAnnounce,
+) -> anyhow::Result<()> {
+    let (mut send, mut recv) = connection.open_bi().await?;
+    tracing::debug!("opened bi stream");
+    let request = Request::Announce(signed_announce);
+    let request = postcard::to_stdvec(&request)?;
+    tracing::debug!("sending announce");
+    send.write_all(&request).await?;
+    send.finish()?;
+    let _response = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
+    Ok(())
+}
+
+/// Announce to a tracker.
+///
+/// You can only announce content you yourself claim to have, to avoid spamming other nodes.
+///
+/// `endpoint` is the iroh endpoint to use for announcing.
+/// `tracker` is the node id of the tracker to announce to. It must understand the [TRACKER_ALPN] protocol.
+/// `content` is the content to announce.
+/// `kind` is the kind of the announcement. We can claim to have the complete data or only some of it.
+pub async fn announce_iroh(
     connection: iroh::endpoint::Connection,
     signed_announce: SignedAnnounce,
 ) -> anyhow::Result<()> {

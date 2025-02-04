@@ -66,7 +66,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
             let connection = iroh_endpoint
                 .connect(tracker, iroh_mainline_content_discovery::protocol::ALPN)
                 .await?;
-            iroh_mainline_content_discovery::announce(connection, signed_announce).await?;
+            iroh_mainline_content_discovery::announce_iroh(connection, signed_announce).await?;
         }
     }
     if !args.quic_tracker.is_empty() {
@@ -82,7 +82,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
         for tracker in args.quic_tracker {
             println!("announcing via quic to {:?}: {}", tracker, content);
             let connection = quinn_endpoint.connect(tracker, "localhost")?.await?;
-            iroh_mainline_content_discovery::announce(connection, signed_announce).await?;
+            iroh_mainline_content_discovery::announce_quinn(connection, signed_announce).await?;
         }
     }
 
