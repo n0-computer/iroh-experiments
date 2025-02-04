@@ -492,7 +492,7 @@ impl quic::RecvStream for RecvStream {
             .as_ref()
             .unwrap()
             .id()
-            .0
+            .index()
             .try_into()
             .expect("invalid stream id")
     }
@@ -639,7 +639,7 @@ where
             .as_ref()
             .unwrap()
             .id()
-            .0
+            .index()
             .try_into()
             .expect("invalid stream id")
     }

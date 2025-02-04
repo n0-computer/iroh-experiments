@@ -80,7 +80,7 @@ async fn query_socket_one(
     args: Query,
 ) -> anyhow::Result<Vec<SignedAnnounce>> {
     let connection = endpoint.connect(addr).await?;
-    let result = query(connection, args).await?;
+    let result = query_quinn(connection, args).await?;
     Ok(result.hosts)
 }
 
@@ -90,7 +90,7 @@ async fn query_iroh_one(
     args: Query,
 ) -> anyhow::Result<Vec<SignedAnnounce>> {
     let connection = endpoint.connect(node_id, ALPN).await?;
-    let result = query(connection, args).await?;
+    let result = query_iroh(connection, args).await?;
     Ok(result.hosts)
 }
 
@@ -185,8 +185,28 @@ pub fn announce_dht(
 }
 
 /// Assume an existing connection to a tracker and query it for peers for some content.
-pub async fn query(
+pub async fn query_iroh(
     connection: iroh::endpoint::Connection,
+    args: Query,
+) -> anyhow::Result<QueryResponse> {
+    tracing::info!("connected to {:?}", connection.remote_node_id()?);
+    let (mut send, mut recv) = connection.open_bi().await?;
+    tracing::info!("opened bi stream");
+    let request = Request::Query(args);
+    let request = postcard::to_stdvec(&request)?;
+    tracing::info!("sending query");
+    send.write_all(&request).await?;
+    send.finish()?;
+    let response = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
+    let response = postcard::from_bytes::<Response>(&response)?;
+    Ok(match response {
+        Response::QueryResponse(response) => response,
+    })
+}
+
+/// Assume an existing connection to a tracker and query it for peers for some content.
+pub async fn query_quinn(
+    connection: iroh_quinn::Connection,
     args: Query,
 ) -> anyhow::Result<QueryResponse> {
     tracing::info!("connected to {:?}", connection.remote_address());
@@ -283,12 +303,21 @@ pub async fn connect(
     tracker: &TrackerId,
     local_ipv4_addr: SocketAddrV4,
     local_ipv6_addr: SocketAddrV6,
-) -> anyhow::Result<iroh::endpoint::Connection> {
+) -> anyhow::Result<Connection> {
     match tracker {
-        TrackerId::Quinn(tracker) => connect_socket(*tracker, local_ipv4_addr.into()).await,
-        TrackerId::Iroh(tracker) => connect_iroh(*tracker, local_ipv4_addr, local_ipv6_addr).await,
+        TrackerId::Quinn(tracker) => Ok(Connection::Quinn(
+            connect_socket(*tracker, local_ipv4_addr.into()).await?,
+        )),
+        TrackerId::Iroh(tracker) => Ok(Connection::Iroh(
+            connect_iroh(*tracker, local_ipv4_addr, local_ipv6_addr).await?,
+        )),
         TrackerId::Udp(_) => anyhow::bail!("can not connect to udp tracker"),
     }
+}
+
+pub enum Connection {
+    Iroh(iroh::endpoint::Connection),
+    Quinn(iroh_quinn::Connection),
 }
 
 /// Create a iroh endpoint and connect to a tracker using the [crate::protocol::ALPN] protocol.
@@ -307,13 +336,13 @@ async fn connect_iroh(
     Ok(connection)
 }
 
-/// Create a quinn endpoint and connect to a tracker using the [crate::protocol::ALPN] protocol.
+/// Create a quinn endpoint and connect to a tracker using the [crate] protocol.
 async fn connect_socket(
     tracker: SocketAddr,
     local_addr: SocketAddr,
-) -> anyhow::Result<iroh::endpoint::Connection> {
+) -> anyhow::Result<iroh_quinn::Connection> {
     let endpoint = create_quinn_client(local_addr, vec![ALPN.to_vec()], false)?;
-    tracing::info!("trying to connect to tracker at {:?}", tracker);
+    tracing::info!("trying t?o )connect to tracker at {:?}", tracker);
     let connection = endpoint.connect(tracker, "localhost")?.await?;
     Ok(connection)
 }

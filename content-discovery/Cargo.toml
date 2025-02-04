@@ -27,6 +27,9 @@ missing_debug_implementations = "warn"
 unused-async = "warn"
 
 [workspace.dependencies]
-iroh = "0.31"
-iroh-base = "0.31"
+iroh = "0.32"
+iroh-base = "0.32"
 iroh-blobs = { version = "0.31", features = ["rpc"] }
+
+[patch.crates-io]
+iroh-blobs = { git = "https://github.com/n0-computer/iroh-blobs.git", branch = "iroh-0-32-0"}
