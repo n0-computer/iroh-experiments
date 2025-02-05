@@ -6,7 +6,7 @@ use std::{
 };
 
 use bao_tree::ChunkNum;
-use iroh::{endpoint::get_remote_node_id, Endpoint, NodeId};
+use iroh::{Endpoint, NodeId};
 use iroh_blobs::{
     get::{fsm::EndBlobNext, Stats},
     hashseq::HashSeq,
@@ -876,7 +876,7 @@ impl Tracker {
                     remote_node_id,
                     std::str::from_utf8(&alpn)
                 );
-                if let Err(cause) = tracker.handle_connection(conn).await {
+                if let Err(cause) = tracker.handle_iroh_connection(conn).await {
                     tracing::error!("error handling connection: {}", cause);
                 }
             });
@@ -886,7 +886,7 @@ impl Tracker {
 
     pub async fn quinn_accept_loop(self, endpoint: iroh_quinn::Endpoint) -> std::io::Result<()> {
         let local_addr = endpoint.local_addr()?;
-        println!("quinn listening on {}", local_addr);
+        println!("quinn listening on {local_addr:?}");
         while let Some(incoming) = endpoint.accept().await {
             tracing::info!("got incoming");
             let connecting = incoming.accept()?;
@@ -899,7 +899,7 @@ impl Tracker {
                 };
                 // if we were supporting multiple protocols, we'd need to check the ALPN here.
                 tracing::info!("got connection from {} {}", remote_node_id, alpn);
-                if let Err(cause) = tracker.handle_connection(conn).await {
+                if let Err(cause) = tracker.handle_quinn_connection(conn).await {
                     tracing::error!("error handling connection: {}", cause);
                 }
             });
@@ -947,9 +947,38 @@ impl Tracker {
     }
 
     /// Handle a single incoming connection on the tracker ALPN.
-    pub async fn handle_connection(
+    pub async fn handle_quinn_connection(
         &self,
         connection: iroh_quinn::Connection,
+    ) -> anyhow::Result<()> {
+        tracing::debug!("calling accept_bi");
+        let (mut send, mut recv) = connection.accept_bi().await?;
+        tracing::debug!("got bi stream");
+        let request = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
+        let request = postcard::from_bytes::<Request>(&request)?;
+        match request {
+            Request::Announce(announce) => {
+                tracing::debug!("got announce: {:?}", announce);
+                self.handle_announce(announce).await?;
+                send.finish()?;
+            }
+
+            Request::Query(query) => {
+                tracing::debug!("handle query: {:?}", query);
+                let response = self.handle_query(query).await?;
+                let response = Response::QueryResponse(response);
+                let response = postcard::to_stdvec(&response)?;
+                send.write_all(&response).await?;
+                send.finish()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Handle a single incoming connection on the tracker ALPN.
+    pub async fn handle_iroh_connection(
+        &self,
+        connection: iroh::endpoint::Connection,
     ) -> anyhow::Result<()> {
         tracing::debug!("calling accept_bi");
         let (mut send, mut recv) = connection.accept_bi().await?;
@@ -1017,7 +1046,7 @@ impl Tracker {
 
     async fn get_or_insert_size(
         &self,
-        connection: &iroh_quinn::Connection,
+        connection: &iroh::endpoint::Connection,
         hash: &Hash,
     ) -> anyhow::Result<u64> {
         let size_opt = self.get_size(*hash).await?;
@@ -1034,7 +1063,7 @@ impl Tracker {
 
     async fn get_or_insert_sizes(
         &self,
-        connection: &iroh_quinn::Connection,
+        connection: &iroh::endpoint::Connection,
         hash: &Hash,
     ) -> anyhow::Result<(HashSeq, Arc<[u64]>)> {
         let sizes = self.get_sizes(*hash).await?;
@@ -1052,7 +1081,7 @@ impl Tracker {
 
     async fn probe(
         &self,
-        connection: &iroh_quinn::Connection,
+        connection: &iroh::endpoint::Connection,
         host: &NodeId,
         content: &HashAndFormat,
         probe_kind: ProbeKind,
@@ -1245,8 +1274,8 @@ async fn accept_conn(
 ) -> anyhow::Result<(NodeId, String, iroh_quinn::Connection)> {
     let alpn = get_alpn(&mut conn).await?;
     let conn = conn.await?;
-    let peer_id = get_remote_node_id(&conn)?;
-    Ok((peer_id, alpn, conn))
+    let node_id = get_remote_node_id(&conn)?;
+    Ok((node_id, alpn, conn))
 }
 
 /// Extract the ALPN protocol from the peer's TLS certificate.
@@ -1261,12 +1290,32 @@ pub async fn get_alpn(connecting: &mut iroh_quinn::Connecting) -> anyhow::Result
     }
 }
 
+pub fn get_remote_node_id(connection: &iroh_quinn::Connection) -> anyhow::Result<iroh::NodeId> {
+    let data = connection.peer_identity();
+    match data {
+        None => anyhow::bail!("no peer certificate found"),
+        Some(data) => match data.downcast::<Vec<rustls_pki_types::CertificateDer>>() {
+            Ok(certs) => {
+                if certs.len() != 1 {
+                    anyhow::bail!(
+                        "expected a single peer certificate, but {} found",
+                        certs.len()
+                    );
+                }
+                let cert = tls::certificate::parse(&certs[0])?;
+                Ok(cert.peer_id())
+            }
+            Err(_) => anyhow::bail!("invalid peer certificate"),
+        },
+    }
+}
+
 /// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
 async fn iroh_accept_conn(
     mut conn: iroh::endpoint::Connecting,
-) -> anyhow::Result<(NodeId, Vec<u8>, iroh_quinn::Connection)> {
+) -> anyhow::Result<(NodeId, Vec<u8>, iroh::endpoint::Connection)> {
     let alpn = conn.alpn().await?;
     let conn = conn.await?;
-    let peer_id = get_remote_node_id(&conn)?;
-    Ok((peer_id, alpn, conn))
+    let node_id = conn.remote_node_id()?;
+    Ok((node_id, alpn, conn))
 }

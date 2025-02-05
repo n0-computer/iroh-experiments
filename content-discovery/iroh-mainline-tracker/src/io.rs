@@ -91,7 +91,7 @@ pub fn log_connection_attempt(
     path: &Option<PathBuf>,
     host: &NodeId,
     t0: Instant,
-    outcome: &anyhow::Result<iroh_quinn::Connection>,
+    outcome: &anyhow::Result<iroh::endpoint::Connection>,
 ) -> anyhow::Result<()> {
     if let Some(path) = path {
         let now = SystemTime::now()

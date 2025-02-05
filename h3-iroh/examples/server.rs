@@ -12,7 +12,7 @@ use h3::error::ErrorLevel;
 use h3::quic::BidiStream;
 use h3::server::RequestStream;
 use http::{Request, StatusCode};
-use iroh::endpoint::{self, Incoming};
+use iroh::endpoint::Incoming;
 use iroh_base::ticket::NodeTicket;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
 
 async fn handle_connection(incoming: Incoming, root: Arc<Option<PathBuf>>) -> Result<()> {
     let conn = incoming.accept()?.await?;
-    let remote_node_id = endpoint::get_remote_node_id(&conn)?;
+    let remote_node_id = conn.remote_node_id()?;
     let span = Span::current();
     span.record("remote_node_id", remote_node_id.fmt_short());
     info!("new connection");

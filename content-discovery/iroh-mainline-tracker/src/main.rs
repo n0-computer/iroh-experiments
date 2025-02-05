@@ -10,7 +10,7 @@ use std::{
 };
 
 use clap::Parser;
-use iroh::{discovery::pkarr::dht::DhtDiscovery, endpoint::get_remote_node_id, Endpoint, NodeId};
+use iroh::{discovery::pkarr::dht::DhtDiscovery, Endpoint, NodeId};
 use iroh_blobs::util::fs::load_secret_key;
 use iroh_mainline_content_discovery::protocol::ALPN;
 use iroh_mainline_tracker::{
@@ -23,8 +23,6 @@ use iroh_mainline_tracker::{
 };
 
 use crate::args::Args;
-
-use iroh_mainline_tracker::tracker::get_alpn;
 
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
@@ -82,11 +80,11 @@ async fn create_endpoint(
 
 /// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
 pub async fn accept_conn(
-    mut conn: iroh_quinn::Connecting,
-) -> anyhow::Result<(NodeId, String, iroh_quinn::Connection)> {
-    let alpn = get_alpn(&mut conn).await?;
+    mut conn: iroh::endpoint::Connecting,
+) -> anyhow::Result<(NodeId, String, iroh::endpoint::Connection)> {
+    let alpn = String::from_utf8(conn.alpn().await?)?;
     let conn = conn.await?;
-    let peer_id = get_remote_node_id(&conn)?;
+    let peer_id = conn.remote_node_id()?;
     Ok((peer_id, alpn, conn))
 }
 
