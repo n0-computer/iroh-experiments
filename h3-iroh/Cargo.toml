@@ -43,3 +43,7 @@ tracing-subscriber = "0.3"
 [[example]]
 name = "server-axum"
 required-features = ["axum"]
+
+[patch.crates-io]
+iroh = { git = "https://github.com/n0-computer/iroh.git", branch = "main" }
+iroh-base = { git = "https://github.com/n0-computer/iroh.git", branch = "main" }
