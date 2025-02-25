@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iroh-blobs = "0.32"
-iroh-gossip = "0.32"
-iroh = "0.32"
-iroh-base = { version ="0.32", features = ["ticket"] }
+iroh-blobs = "0.33"
+iroh-gossip = "0.33"
+iroh = "0.33"
+iroh-base = { version ="0.33", features = ["ticket"] }
 iroh-car = "0.5.0"
 redb = "2.1.1"
 clap = { version = "4.5.7", features = ["derive"] }
@@ -32,9 +32,3 @@ multihash = "0.19.1"
 cid = { version = "0.11.1", features = ["serde"] }
 multihash-codetable = "0.1.3"
 serde_ipld_dagcbor = "0.6.1"
-
-[patch.crates-io]
-iroh-blobs = {git = "https://github.com/n0-computer/iroh-blobs.git", branch = "main"}
-iroh-gossip = {git = "https://github.com/n0-computer/iroh-gossip.git", branch = "main"}
-iroh = {git = "https://github.com/n0-computer/iroh.git", branch = "main"}
-iroh-base = {git = "https://github.com/n0-computer/iroh.git", branch = "main"}
