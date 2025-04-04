@@ -31,7 +31,7 @@ rcgen = { workspace = true, optional = true }
 rustls = { workspace = true, features = ["ring"], optional = true }
 genawaiter = { version = "0.99.1", features = ["futures03"], optional = true }
 tokio = { workspace = true, optional = true }
-flume = { workspace = true }
+tokio-stream = { workspace = true }
 
 # dependencies for the tls utils
 der = { version = "0.7", features = ["alloc", "derive"], optional = true }
