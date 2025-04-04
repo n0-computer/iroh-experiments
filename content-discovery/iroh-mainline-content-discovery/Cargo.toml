@@ -26,9 +26,9 @@ quinn = { workspace = true, optional = true }
 mainline = { workspace = true, optional = true, features = ["async"] }
 anyhow = { workspace = true, features = ["backtrace"], optional = true }
 postcard = { workspace = true, features = ["alloc", "use-std"], optional = true }
-futures = { version = "0.3.25", optional = true }
-rcgen = { version = "0.13.1", optional = true }
-rustls = { version = "0.23", default-features = false, features = ["ring"], optional = true }
+futures = { workspace = true, optional = true }
+rcgen = { workspace = true, optional = true }
+rustls = { workspace = true, features = ["ring"], optional = true }
 genawaiter = { version = "0.99.1", features = ["futures03"], optional = true }
 tokio = { workspace = true, optional = true }
 flume = { workspace = true }
