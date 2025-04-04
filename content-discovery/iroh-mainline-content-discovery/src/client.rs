@@ -1,4 +1,3 @@
-use genawaiter::sync::Gen;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     net::{SocketAddr, SocketAddrV4, SocketAddrV6},
@@ -14,6 +13,7 @@ use futures::{
     stream::FusedStream,
     FutureExt, Stream, StreamExt,
 };
+use genawaiter::sync::Gen;
 use iroh::{
     discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, Discovery},
     Endpoint, NodeId,
