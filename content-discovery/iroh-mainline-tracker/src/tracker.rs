@@ -29,6 +29,10 @@ use tokio::sync::oneshot;
 mod tables;
 mod util;
 
+use self::{
+    tables::{ReadOnlyTables, ReadableTables, Tables},
+    util::PeekableFlumeReceiver,
+};
 use crate::{
     io::{log_connection_attempt, log_probe_attempt},
     iroh_blobs_util::{
@@ -36,11 +40,6 @@ use crate::{
     },
     options::Options,
     task_map::TaskMap,
-};
-
-use self::{
-    tables::{ReadOnlyTables, ReadableTables, Tables},
-    util::PeekableFlumeReceiver,
 };
 
 /// The tracker server.

@@ -125,9 +125,9 @@ impl Options {
     }
 }
 mod serde_duration {
+    use serde::{de::Deserializer, ser::Serializer};
+
     use super::*;
-    use serde::de::Deserializer;
-    use serde::ser::Serializer;
 
     pub fn serialize<S: Serializer>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
