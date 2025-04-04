@@ -3,7 +3,6 @@ members = [
   "iroh-mainline-content-discovery",
   "iroh-mainline-content-discovery-cli",
   "iroh-mainline-tracker",
-  "tls",
 ]
 resolver = "2"
 

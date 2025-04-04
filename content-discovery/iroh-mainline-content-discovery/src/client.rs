@@ -20,8 +20,12 @@ use iroh::{
 };
 use iroh_blobs::HashAndFormat;
 
-use crate::protocol::{
-    AnnounceKind, Query, QueryResponse, Request, Response, SignedAnnounce, ALPN, REQUEST_SIZE_LIMIT,
+use crate::{
+    protocol::{
+        AnnounceKind, Query, QueryResponse, Request, Response, SignedAnnounce, ALPN,
+        REQUEST_SIZE_LIMIT,
+    },
+    tls_utils,
 };
 
 /// Announce to a tracker.
@@ -33,7 +37,7 @@ use crate::protocol::{
 /// `content` is the content to announce.
 /// `kind` is the kind of the announcement. We can claim to have the complete data or only some of it.
 pub async fn announce_quinn(
-    connection: iroh_quinn::Connection,
+    connection: quinn::Connection,
     signed_announce: SignedAnnounce,
 ) -> anyhow::Result<()> {
     let (mut send, mut recv) = connection.open_bi().await?;
@@ -119,14 +123,14 @@ async fn query_iroh_one(
 
 /// A connection provider that can be used to connect to a tracker.
 ///
-/// This can either be a [`iroh_quinn::Endpoint`] where connections are created on demand,
+/// This can either be a [`quinn::Endpoint`] where connections are created on demand,
 /// or some sort of connection pool.
 pub trait QuinnConnectionProvider<Addr>: Clone {
-    fn connect(&self, addr: Addr) -> BoxFuture<anyhow::Result<iroh_quinn::Connection>>;
+    fn connect(&self, addr: Addr) -> BoxFuture<anyhow::Result<quinn::Connection>>;
 }
 
-impl QuinnConnectionProvider<SocketAddr> for iroh_quinn::Endpoint {
-    fn connect(&self, addr: SocketAddr) -> BoxFuture<anyhow::Result<iroh_quinn::Connection>> {
+impl QuinnConnectionProvider<SocketAddr> for quinn::Endpoint {
+    fn connect(&self, addr: SocketAddr) -> BoxFuture<anyhow::Result<quinn::Connection>> {
         async move { Ok(self.connect(addr, "localhost")?.await?) }.boxed()
     }
 }
@@ -229,7 +233,7 @@ pub async fn query_iroh(
 
 /// Assume an existing connection to a tracker and query it for peers for some content.
 pub async fn query_quinn(
-    connection: iroh_quinn::Connection,
+    connection: quinn::Connection,
     args: Query,
 ) -> anyhow::Result<QueryResponse> {
     tracing::info!("connected to {:?}", connection.remote_address());
@@ -252,12 +256,13 @@ pub fn create_quinn_client(
     bind_addr: SocketAddr,
     alpn_protocols: Vec<Vec<u8>>,
     keylog: bool,
-) -> anyhow::Result<iroh_quinn::Endpoint> {
+) -> anyhow::Result<quinn::Endpoint> {
     let secret_key = iroh::SecretKey::generate(rand::thread_rng());
-    let tls_client_config = tls::make_client_config(&secret_key, None, alpn_protocols, keylog)?;
-    let mut client_config = iroh_quinn::ClientConfig::new(Arc::new(tls_client_config));
-    let mut endpoint = iroh_quinn::Endpoint::client(bind_addr)?;
-    let mut transport_config = iroh_quinn::TransportConfig::default();
+    let tls_client_config =
+        tls_utils::make_client_config(&secret_key, None, alpn_protocols, keylog)?;
+    let mut client_config = quinn::ClientConfig::new(Arc::new(tls_client_config));
+    let mut endpoint = quinn::Endpoint::client(bind_addr)?;
+    let mut transport_config = quinn::TransportConfig::default();
     transport_config.keep_alive_interval(Some(Duration::from_secs(1)));
     client_config.transport_config(Arc::new(transport_config));
     endpoint.set_default_client_config(client_config);
@@ -340,7 +345,7 @@ pub async fn connect(
 
 pub enum Connection {
     Iroh(iroh::endpoint::Connection),
-    Quinn(iroh_quinn::Connection),
+    Quinn(quinn::Connection),
 }
 
 /// Create a iroh endpoint and connect to a tracker using the [crate::protocol::ALPN] protocol.
@@ -363,7 +368,7 @@ async fn connect_iroh(
 async fn connect_socket(
     tracker: SocketAddr,
     local_addr: SocketAddr,
-) -> anyhow::Result<iroh_quinn::Connection> {
+) -> anyhow::Result<quinn::Connection> {
     let endpoint = create_quinn_client(local_addr, vec![ALPN.to_vec()], false)?;
     tracing::info!("trying t?o )connect to tracker at {:?}", tracker);
     let connection = endpoint.connect(tracker, "localhost")?.await?;

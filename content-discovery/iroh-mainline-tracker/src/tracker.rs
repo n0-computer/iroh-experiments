@@ -18,7 +18,7 @@ use iroh_mainline_content_discovery::{
         AbsoluteTime, Announce, AnnounceKind, Query, QueryResponse, Request, Response,
         SignedAnnounce, REQUEST_SIZE_LIMIT,
     },
-    to_infohash,
+    tls_utils, to_infohash,
 };
 use rand::Rng;
 use redb::{ReadableTable, RedbValue};
@@ -883,7 +883,7 @@ impl Tracker {
         Ok(())
     }
 
-    pub async fn quinn_accept_loop(self, endpoint: iroh_quinn::Endpoint) -> std::io::Result<()> {
+    pub async fn quinn_accept_loop(self, endpoint: quinn::Endpoint) -> std::io::Result<()> {
         let local_addr = endpoint.local_addr()?;
         println!("quinn listening on {local_addr:?}");
         while let Some(incoming) = endpoint.accept().await {
@@ -948,7 +948,7 @@ impl Tracker {
     /// Handle a single incoming connection on the tracker ALPN.
     pub async fn handle_quinn_connection(
         &self,
-        connection: iroh_quinn::Connection,
+        connection: quinn::Connection,
     ) -> anyhow::Result<()> {
         tracing::debug!("calling accept_bi");
         let (mut send, mut recv) = connection.accept_bi().await?;
@@ -1269,8 +1269,8 @@ impl Tracker {
 
 /// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
 async fn accept_conn(
-    mut conn: iroh_quinn::Connecting,
-) -> anyhow::Result<(NodeId, String, iroh_quinn::Connection)> {
+    mut conn: quinn::Connecting,
+) -> anyhow::Result<(NodeId, String, quinn::Connection)> {
     let alpn = get_alpn(&mut conn).await?;
     let conn = conn.await?;
     let node_id = get_remote_node_id(&conn)?;
@@ -1278,9 +1278,9 @@ async fn accept_conn(
 }
 
 /// Extract the ALPN protocol from the peer's TLS certificate.
-pub async fn get_alpn(connecting: &mut iroh_quinn::Connecting) -> anyhow::Result<String> {
+pub async fn get_alpn(connecting: &mut quinn::Connecting) -> anyhow::Result<String> {
     let data = connecting.handshake_data().await?;
-    match data.downcast::<iroh_quinn::crypto::rustls::HandshakeData>() {
+    match data.downcast::<quinn::crypto::rustls::HandshakeData>() {
         Ok(data) => match data.protocol {
             Some(protocol) => std::string::String::from_utf8(protocol).map_err(Into::into),
             None => anyhow::bail!("no ALPN protocol available"),
@@ -1289,7 +1289,7 @@ pub async fn get_alpn(connecting: &mut iroh_quinn::Connecting) -> anyhow::Result
     }
 }
 
-pub fn get_remote_node_id(connection: &iroh_quinn::Connection) -> anyhow::Result<iroh::NodeId> {
+pub fn get_remote_node_id(connection: &quinn::Connection) -> anyhow::Result<iroh::NodeId> {
     let data = connection.peer_identity();
     match data {
         None => anyhow::bail!("no peer certificate found"),
@@ -1301,7 +1301,7 @@ pub fn get_remote_node_id(connection: &iroh_quinn::Connection) -> anyhow::Result
                         certs.len()
                     );
                 }
-                let cert = tls::certificate::parse(&certs[0])?;
+                let cert = tls_utils::certificate::parse(&certs[0])?;
                 Ok(cert.peer_id())
             }
             Err(_) => anyhow::bail!("invalid peer certificate"),

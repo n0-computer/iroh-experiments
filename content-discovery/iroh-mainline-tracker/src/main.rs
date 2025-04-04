@@ -12,7 +12,7 @@ use std::{
 use clap::Parser;
 use iroh::{discovery::pkarr::dht::DhtDiscovery, Endpoint, NodeId};
 use iroh_blobs::util::fs::load_secret_key;
-use iroh_mainline_content_discovery::protocol::ALPN;
+use iroh_mainline_content_discovery::{protocol::ALPN, tls_utils};
 use iroh_mainline_tracker::{
     io::{
         self, load_from_file, setup_logging, tracker_home, tracker_path, CONFIG_DEBUG_FILE,
@@ -130,7 +130,7 @@ async fn server(args: Args) -> anyhow::Result<()> {
     let udp_socket = tokio::net::UdpSocket::bind(udp_bind_addr).await?;
     let quinn_bind_addr =
         SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, options.quinn_port));
-    let quinn_endpoint = iroh_quinn::Endpoint::server(server_config, quinn_bind_addr)?;
+    let quinn_endpoint = quinn::Endpoint::server(server_config, quinn_bind_addr)?;
     // set the quinn port to the actual port we bound to so the DHT will announce it correctly
     options.quinn_port = quinn_endpoint.local_addr()?.port();
     let iroh_endpoint = create_endpoint(key.clone(), options.iroh_ipv4_addr, true).await?;
@@ -185,7 +185,7 @@ async fn main() -> anyhow::Result<()> {
 
 /// Returns default server configuration along with its certificate.
 #[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
-fn configure_server(secret_key: &iroh::SecretKey) -> anyhow::Result<iroh_quinn::ServerConfig> {
+fn configure_server(secret_key: &iroh::SecretKey) -> anyhow::Result<quinn::ServerConfig> {
     make_server_config(secret_key, 8, 1024, vec![ALPN.to_vec()])
 }
 
@@ -195,10 +195,10 @@ pub fn make_server_config(
     max_streams: u64,
     max_connections: u32,
     alpn_protocols: Vec<Vec<u8>>,
-) -> anyhow::Result<iroh_quinn::ServerConfig> {
-    let tls_server_config = tls::make_server_config(secret_key, alpn_protocols, false)?;
-    let mut server_config = iroh_quinn::ServerConfig::with_crypto(Arc::new(tls_server_config));
-    let mut transport_config = iroh_quinn::TransportConfig::default();
+) -> anyhow::Result<quinn::ServerConfig> {
+    let tls_server_config = tls_utils::make_server_config(secret_key, alpn_protocols, false)?;
+    let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(tls_server_config));
+    let mut transport_config = quinn::TransportConfig::default();
     transport_config
         .max_concurrent_bidi_streams(max_streams.try_into()?)
         .max_concurrent_uni_streams(0u32.into());
