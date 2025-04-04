@@ -21,7 +21,7 @@ humantime = "2.1.0"
 iroh = { workspace = true }
 iroh-blobs = { workspace = true }
 mainline = { workspace = true, features = ["async"] }
-pkarr = { workspace = true, features = ["async"] }
+pkarr = { workspace = true }
 postcard = { workspace = true, features = ["alloc", "use-std"] }
 rand = "0.8"
 rcgen = "0.12.0"

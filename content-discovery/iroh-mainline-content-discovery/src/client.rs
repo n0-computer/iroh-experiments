@@ -84,8 +84,8 @@ pub fn to_infohash(haf: HashAndFormat) -> mainline::Id {
 }
 
 fn unique_tracker_addrs(
-    response: flume::IntoIter<Vec<SocketAddr>>,
-) -> impl Stream<Item = SocketAddr> {
+    response: impl IntoIterator<Item = Vec<SocketAddrV4>>,
+) -> impl Stream<Item = SocketAddrV4> {
     Gen::new(|co| async move {
         let mut found = HashSet::new();
         for response in response {
@@ -160,19 +160,19 @@ pub fn query_trackers(
 /// Query the mainline DHT for trackers for the given content, then query each tracker for peers.
 pub fn query_dht(
     endpoint: impl QuinnConnectionProvider<SocketAddr>,
-    dht: mainline::dht::Dht,
+    dht: mainline::Dht,
     args: Query,
     query_parallelism: usize,
 ) -> impl Stream<Item = anyhow::Result<SignedAnnounce>> {
     // let dht = dht.as_async();
     let info_hash = to_infohash(args.content);
-    let response = dht.get_peers(info_hash).unwrap();
+    let response = dht.get_peers(info_hash);
     let unique_tracker_addrs = unique_tracker_addrs(response);
     unique_tracker_addrs
         .map(move |addr| {
             let endpoint = endpoint.clone();
             async move {
-                let hosts = match query_socket_one(endpoint, addr, args).await {
+                let hosts = match query_socket_one(endpoint, addr.into(), args).await {
                     Ok(hosts) => hosts.into_iter().map(anyhow::Ok).collect(),
                     Err(cause) => vec![Err(cause)],
                 };
@@ -188,14 +188,14 @@ pub fn query_dht(
 /// Note that this should only be called from a publicly reachable node, where port is the port
 /// on which the tracker protocol is reachable.
 pub fn announce_dht(
-    dht: mainline::dht::Dht,
+    dht: mainline::Dht,
     content: BTreeSet<HashAndFormat>,
     port: u16,
     announce_parallelism: usize,
 ) -> impl Stream<
     Item = (
         HashAndFormat,
-        mainline::Result<mainline::Id, mainline::Error>,
+        std::result::Result<mainline::Id, mainline::errors::PutQueryError>,
     ),
 > {
     let dht = dht.as_async();
@@ -447,7 +447,7 @@ impl UdpDiscovery {
     /// Query the mainline DHT for trackers for the given content, then query each tracker for peers.
     pub async fn query_dht(
         &self,
-        dht: mainline::dht::Dht,
+        dht: mainline::Dht,
         args: Query,
     ) -> anyhow::Result<impl Stream<Item = SignedAnnounce>> {
         let results = self.query(args).await?.into_stream().boxed();
@@ -457,10 +457,10 @@ impl UdpDiscovery {
             // delay before querying the DHT
             tokio::time::sleep(Duration::from_millis(50)).await;
             let info_hash = to_infohash(args.content);
-            let mut addrs = dht.get_peers(info_hash).unwrap();
+            let mut addrs = dht.get_peers(info_hash);
             while let Some(addrs) = addrs.next().await {
                 for addr in addrs {
-                    this.add_tracker(addr).await.ok();
+                    this.add_tracker(addr.into()).await.ok();
                 }
             }
             future::pending::<SignedAnnounce>().await

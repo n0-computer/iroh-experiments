@@ -31,8 +31,8 @@ iroh-base = "0.34"
 iroh-blobs = { version = "0.34", features = ["rpc"] }
 # explicitly specified until iroh minimal crates issues are solved, see https://github.com/n0-computer/iroh/pull/3255
 tokio = { version = "1.44.1" }
-mainline = { version = "2.0.0", default-features = false }
-pkarr = { version = "2.0.3", default-features = false }
+mainline = { version = "5.4.0", default-features = false }
+pkarr = { version = "3.7.0", default-features = false }
 postcard = { version = "1", default-features = false }
 quinn = { package = "iroh-quinn", version = "0.13", default-features = false }
 anyhow = { version = "1", default-features = false }
