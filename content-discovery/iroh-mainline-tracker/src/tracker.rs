@@ -17,7 +17,8 @@ use iroh_mainline_content_discovery::{
     protocol::{
         AbsoluteTime, Announce, AnnounceKind, Query, QueryResponse, Request, Response,
         SignedAnnounce, REQUEST_SIZE_LIMIT,
-    }, tls_utils, to_infohash
+    },
+    tls_utils, to_infohash,
 };
 use rand::Rng;
 use redb::{ReadableTable, RedbValue};

@@ -20,9 +20,13 @@ use iroh::{
 };
 use iroh_blobs::HashAndFormat;
 
-use crate::{protocol::{
-    AnnounceKind, Query, QueryResponse, Request, Response, SignedAnnounce, ALPN, REQUEST_SIZE_LIMIT,
-}, tls_utils};
+use crate::{
+    protocol::{
+        AnnounceKind, Query, QueryResponse, Request, Response, SignedAnnounce, ALPN,
+        REQUEST_SIZE_LIMIT,
+    },
+    tls_utils,
+};
 
 /// Announce to a tracker.
 ///
@@ -254,7 +258,8 @@ pub fn create_quinn_client(
     keylog: bool,
 ) -> anyhow::Result<quinn::Endpoint> {
     let secret_key = iroh::SecretKey::generate(rand::thread_rng());
-    let tls_client_config = tls_utils::make_client_config(&secret_key, None, alpn_protocols, keylog)?;
+    let tls_client_config =
+        tls_utils::make_client_config(&secret_key, None, alpn_protocols, keylog)?;
     let mut client_config = quinn::ClientConfig::new(Arc::new(tls_client_config));
     let mut endpoint = quinn::Endpoint::client(bind_addr)?;
     let mut transport_config = quinn::TransportConfig::default();
