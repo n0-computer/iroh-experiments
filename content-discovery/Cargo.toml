@@ -30,3 +30,5 @@ unused-async = "warn"
 iroh = { version ="0.34", features = ["discovery-pkarr-dht"] }
 iroh-base = "0.34"
 iroh-blobs = { version = "0.34", features = ["rpc"] }
+# explicitly specified until iroh minimal crates issues are solved, see https://github.com/n0-computer/iroh/pull/3255
+tokio = { version = "1.44.1" }
