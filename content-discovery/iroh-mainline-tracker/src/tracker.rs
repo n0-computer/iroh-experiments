@@ -194,9 +194,18 @@ impl Actor {
                     let txn = db.begin_write()?;
                     let mut n = 0;
                     let t0 = Instant::now();
+                    let timeout = tokio::time::sleep(Duration::from_secs(1));
+                    tokio::pin!(timeout);
                     let mut tables = Tables::new(&txn)?;
                     loop {
-                        let Some(msg) = msgs.recv().await else {
+                        let msg = tokio::select! {
+                            msg = msgs.recv() => msg,
+                            _ = &mut timeout => {
+                                tracing::debug!("timeout");
+                                break;
+                            }
+                        };
+                        let Some(msg) = msg else {
                             break;
                         };
                         if let Err(msg) = self.handle_readwrite(msg, &mut tables)? {
@@ -221,8 +230,17 @@ impl Actor {
                     let tables = ReadOnlyTables::new(&txn)?;
                     let mut n = 0;
                     let t0 = Instant::now();
+                    let timeout = tokio::time::sleep(Duration::from_secs(1));
+                    tokio::pin!(timeout);
                     loop {
-                        let Some(msg) = msgs.recv().await else {
+                        let msg = tokio::select! {
+                            msg = msgs.recv() => msg,
+                            _ = &mut timeout => {
+                                tracing::debug!("timeout");
+                                break;
+                            }
+                        };
+                        let Some(msg) = msg else {
                             break;
                         };
                         if let Err(msg) = self.handle_readonly(msg, &tables)? {
