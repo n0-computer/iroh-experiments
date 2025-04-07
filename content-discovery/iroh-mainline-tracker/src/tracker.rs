@@ -792,7 +792,7 @@ impl Tracker {
         };
         txn.commit()?;
         let rt = tokio::runtime::Handle::current();
-        let handle = std::thread::spawn(move|| {
+        let handle = std::thread::spawn(move || {
             rt.block_on(async move {
                 if let Err(cause) = actor.run(db).await {
                     tracing::error!("error in actor: {}", cause);
@@ -974,7 +974,11 @@ impl Tracker {
                 let response = self.handle_query(query).await?;
                 let response = Response::QueryResponse(response);
                 let response_bytes = postcard::to_slice(&response, &mut buf)?;
-                trace!("sending response, {:?} {} bytes", response, response_bytes.len());
+                trace!(
+                    "sending response, {:?} {} bytes",
+                    response,
+                    response_bytes.len()
+                );
                 socket.send_to(response_bytes, addr).await?;
             }
         }
