@@ -79,7 +79,7 @@ impl Drop for Inner {
             drop_permit.send(ActorMessage::Stop);
         }
         if let Some(handle) = self.handle.take() {
-            if let Err(_) = handle.join() {
+            if handle.join().is_err() {
                 error!("error joining actor thread");
             }
         }
