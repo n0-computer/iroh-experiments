@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::Context;
 use bao_tree::ChunkNum;
 use iroh::{Endpoint, NodeId};
 use iroh_blobs::{
@@ -24,14 +25,15 @@ use rand::Rng;
 use redb::{ReadableTable, RedbValue};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::task::AbortOnDropHandle;
 
 mod tables;
 mod util;
 
 use self::{
     tables::{ReadOnlyTables, ReadableTables, Tables},
-    util::PeekableFlumeReceiver,
+    util::PeekableReceiver,
 };
 use crate::{
     io::{log_connection_attempt, log_probe_attempt},
@@ -51,7 +53,9 @@ pub struct Tracker(Arc<Inner>);
 /// The inner state of the tracker server. Options are immutable and don't need to be locked.
 #[derive(Debug)]
 struct Inner {
-    actor: flume::Sender<ActorMessage>,
+    actor: mpsc::Sender<ActorMessage>,
+    /// A permit to send a single message to the actor, for drop.
+    drop_permit: Option<mpsc::OwnedPermit<ActorMessage>>,
     /// The options for the tracker server.
     options: Options,
     /// Tasks that announce to the DHT. There is one task per content item, just to inform the DHT
@@ -66,20 +70,22 @@ struct Inner {
     /// To spawn non-send futures.
     local_pool: tokio_util::task::LocalPoolHandle,
     /// The handle to the actor thread.
-    handle: Option<std::thread::JoinHandle<()>>,
+    handle: Option<AbortOnDropHandle<()>>,
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        self.actor.send(ActorMessage::Stop).ok();
+        if let Some(drop_permit) = self.drop_permit.take() {
+            drop_permit.send(ActorMessage::Stop);
+        }
         if let Some(handle) = self.handle.take() {
-            handle.join().ok();
+            tokio::spawn(handle);
         }
     }
 }
 
 struct Actor {
-    rx: flume::Receiver<ActorMessage>,
+    rx: Option<mpsc::Receiver<ActorMessage>>,
     state: State,
     options: Options,
 }
@@ -174,9 +180,9 @@ struct AnnounceResponse {
 }
 
 impl Actor {
-    fn run(mut self, db: redb::Database) -> anyhow::Result<()> {
-        let mut msgs = PeekableFlumeReceiver::new(self.rx.clone());
-        while let Some(msg) = msgs.peek() {
+    async fn run(mut self, db: redb::Database) -> anyhow::Result<()> {
+        let mut msgs = PeekableReceiver::new(self.rx.take().context("receiver gone")?);
+        while let Some(msg) = msgs.peek().await {
             if let ActorMessage::Stop = msg {
                 break;
             }
@@ -184,12 +190,24 @@ impl Actor {
                 MessageCategory::ReadWrite => {
                     tracing::debug!("write transaction");
                     let txn = db.begin_write()?;
+                    let mut n = 0;
+                    let t0 = Instant::now();
                     let mut tables = Tables::new(&txn)?;
-                    for msg in msgs.batch_iter(1000, Duration::from_secs(1)) {
+                    loop {
+                        let Some(msg) = msgs.recv().await else {
+                            break;
+                        };
                         if let Err(msg) = self.handle_readwrite(msg, &mut tables)? {
                             msgs.push_back(msg).expect("just recv'd");
                             break;
                         }
+                        if n > 1000 {
+                            break;
+                        }
+                        if t0.elapsed() > Duration::from_secs(1) {
+                            break;
+                        }
+                        n += 1;
                     }
                     drop(tables);
                     tracing::debug!("write transaction end");
@@ -199,11 +217,23 @@ impl Actor {
                     tracing::debug!("read transaction");
                     let txn = db.begin_read()?;
                     let tables = ReadOnlyTables::new(&txn)?;
-                    for msg in msgs.batch_iter(1000, Duration::from_secs(10)) {
+                    let mut n = 0;
+                    let t0 = Instant::now();
+                    loop {
+                        let Some(msg) = msgs.recv().await else {
+                            break;
+                        };
                         if let Err(msg) = self.handle_readonly(msg, &tables)? {
                             msgs.push_back(msg).expect("just recv'd");
                             break;
                         }
+                        if n > 1000 {
+                            break;
+                        }
+                        if t0.elapsed() > Duration::from_secs(1) {
+                            break;
+                        }
+                        n += 1;
                     }
                     tracing::debug!("read transaction end");
                 }
@@ -747,9 +777,9 @@ impl Tracker {
         let db = redb::Database::create(&options.announce_data_path)?;
         let dht = Arc::new(mainline::Dht::client()?.as_async());
         let tpc = tokio_util::task::LocalPoolHandle::new(1);
-        let (tx, rx) = flume::unbounded();
+        let (tx, rx) = mpsc::channel(1024);
         let actor = Actor {
-            rx,
+            rx: Some(rx),
             state: State::default(),
             options: options.clone(),
         };
@@ -759,14 +789,14 @@ impl Tracker {
             actor.get_distinct_content(&tables)?
         };
         txn.commit()?;
-        let handle = std::thread::spawn(move || {
-            if let Err(cause) = actor.run(db) {
+        let handle = AbortOnDropHandle::new(tokio::spawn(async move {
+            if let Err(cause) = actor.run(db).await {
                 tracing::error!("error in actor: {}", cause);
             }
-        });
-        tx.send(ActorMessage::Dump).ok();
+        }));
         let res = Self(Arc::new(Inner {
-            actor: tx,
+            actor: tx.clone(),
+            drop_permit: Some(tx.try_reserve_owned().context("unable to reserve permit")?),
             options,
             announce_tasks: Default::default(),
             probe_tasks: Default::default(),
@@ -853,7 +883,7 @@ impl Tracker {
         let (tx, rx) = oneshot::channel();
         self.0
             .actor
-            .send_async(ActorMessage::GetDistinctContent { tx })
+            .send(ActorMessage::GetDistinctContent { tx })
             .await?;
         rx.await?
     }
@@ -1007,7 +1037,7 @@ impl Tracker {
         let (tx, rx) = oneshot::channel();
         self.0
             .actor
-            .send_async(ActorMessage::GetSize { hash, tx })
+            .send(ActorMessage::GetSize { hash, tx })
             .await?;
         rx.await?
     }
@@ -1016,7 +1046,7 @@ impl Tracker {
         let (tx, rx) = oneshot::channel();
         self.0
             .actor
-            .send_async(ActorMessage::GetSizes { hash, tx })
+            .send(ActorMessage::GetSizes { hash, tx })
             .await?;
         rx.await?
     }
@@ -1025,10 +1055,10 @@ impl Tracker {
         &self,
         hash: Hash,
         size: u64,
-    ) -> std::result::Result<(), flume::SendError<ActorMessage>> {
+    ) -> std::result::Result<(), mpsc::error::SendError<ActorMessage>> {
         self.0
             .actor
-            .send_async(ActorMessage::SetSize { hash, size })
+            .send(ActorMessage::SetSize { hash, size })
             .await
     }
 
@@ -1036,10 +1066,10 @@ impl Tracker {
         &self,
         hash: Hash,
         sizes: (HashSeq, Arc<[u64]>),
-    ) -> std::result::Result<(), flume::SendError<ActorMessage>> {
+    ) -> std::result::Result<(), mpsc::error::SendError<ActorMessage>> {
         self.0
             .actor
-            .send_async(ActorMessage::SetSizes { hash, sizes })
+            .send(ActorMessage::SetSizes { hash, sizes })
             .await
     }
 
@@ -1162,7 +1192,7 @@ impl Tracker {
         let (tx, rx) = oneshot::channel();
         self.0
             .actor
-            .send_async(ActorMessage::Announce { announce, tx })
+            .send(ActorMessage::Announce { announce, tx })
             .await?;
         let AnnounceResponse {
             new_content,
@@ -1181,10 +1211,7 @@ impl Tracker {
 
     async fn handle_query(&self, query: Query) -> anyhow::Result<QueryResponse> {
         let (tx, rx) = oneshot::channel();
-        self.0
-            .actor
-            .send_async(ActorMessage::Query { query, tx })
-            .await?;
+        self.0.actor.send(ActorMessage::Query { query, tx }).await?;
         rx.await?
     }
 
@@ -1198,7 +1225,7 @@ impl Tracker {
         let (tx, rx) = oneshot::channel();
         self.0
             .actor
-            .send_async(ActorMessage::GetContentForNode { node, tx })
+            .send(ActorMessage::GetContentForNode { node, tx })
             .await?;
         rx.await?
     }
@@ -1209,10 +1236,10 @@ impl Tracker {
         node: NodeId,
         results: Vec<(HashAndFormat, AnnounceKind, anyhow::Result<Stats>)>,
         now: AbsoluteTime,
-    ) -> std::result::Result<(), flume::SendError<ActorMessage>> {
+    ) -> std::result::Result<(), mpsc::error::SendError<ActorMessage>> {
         self.0
             .actor
-            .send_async(ActorMessage::StoreProbeResult { node, results, now })
+            .send(ActorMessage::StoreProbeResult { node, results, now })
             .await
     }
 
@@ -1262,7 +1289,7 @@ impl Tracker {
 
     async fn gc(&self) -> anyhow::Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.0.actor.send_async(ActorMessage::Gc { tx }).await?;
+        self.0.actor.send(ActorMessage::Gc { tx }).await?;
         rx.await?
     }
 }
