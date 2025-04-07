@@ -19,6 +19,7 @@ use iroh::{
     Endpoint, NodeId,
 };
 use iroh_blobs::HashAndFormat;
+use tokio::sync::mpsc;
 
 use crate::{
     protocol::{
@@ -84,8 +85,8 @@ pub fn to_infohash(haf: HashAndFormat) -> mainline::Id {
 }
 
 fn unique_tracker_addrs(
-    response: flume::IntoIter<Vec<SocketAddr>>,
-) -> impl Stream<Item = SocketAddr> {
+    response: impl IntoIterator<Item = Vec<SocketAddrV4>>,
+) -> impl Stream<Item = SocketAddrV4> {
     Gen::new(|co| async move {
         let mut found = HashSet::new();
         for response in response {
@@ -160,19 +161,19 @@ pub fn query_trackers(
 /// Query the mainline DHT for trackers for the given content, then query each tracker for peers.
 pub fn query_dht(
     endpoint: impl QuinnConnectionProvider<SocketAddr>,
-    dht: mainline::dht::Dht,
+    dht: mainline::Dht,
     args: Query,
     query_parallelism: usize,
 ) -> impl Stream<Item = anyhow::Result<SignedAnnounce>> {
     // let dht = dht.as_async();
     let info_hash = to_infohash(args.content);
-    let response = dht.get_peers(info_hash).unwrap();
+    let response = dht.get_peers(info_hash);
     let unique_tracker_addrs = unique_tracker_addrs(response);
     unique_tracker_addrs
         .map(move |addr| {
             let endpoint = endpoint.clone();
             async move {
-                let hosts = match query_socket_one(endpoint, addr, args).await {
+                let hosts = match query_socket_one(endpoint, addr.into(), args).await {
                     Ok(hosts) => hosts.into_iter().map(anyhow::Ok).collect(),
                     Err(cause) => vec![Err(cause)],
                 };
@@ -188,14 +189,14 @@ pub fn query_dht(
 /// Note that this should only be called from a publicly reachable node, where port is the port
 /// on which the tracker protocol is reachable.
 pub fn announce_dht(
-    dht: mainline::dht::Dht,
+    dht: mainline::Dht,
     content: BTreeSet<HashAndFormat>,
     port: u16,
     announce_parallelism: usize,
 ) -> impl Stream<
     Item = (
         HashAndFormat,
-        mainline::Result<mainline::Id, mainline::Error>,
+        std::result::Result<mainline::Id, mainline::errors::PutQueryError>,
     ),
 > {
     let dht = dht.as_async();
@@ -423,13 +424,13 @@ where
 
 #[derive(Debug, Clone)]
 pub struct UdpDiscovery {
-    tx: flume::Sender<UdpActorMessage>,
+    tx: mpsc::Sender<UdpActorMessage>,
 }
 
 impl UdpDiscovery {
     /// Create a new UDP discovery service.
     pub async fn new(socket: SocketAddr) -> anyhow::Result<Self> {
-        let (tx, rx) = flume::unbounded();
+        let (tx, rx) = mpsc::channel(1024);
         let socket = tokio::net::UdpSocket::bind(socket).await?;
         let _task = tokio::spawn(
             UdpActor {
@@ -447,20 +448,20 @@ impl UdpDiscovery {
     /// Query the mainline DHT for trackers for the given content, then query each tracker for peers.
     pub async fn query_dht(
         &self,
-        dht: mainline::dht::Dht,
+        dht: mainline::Dht,
         args: Query,
     ) -> anyhow::Result<impl Stream<Item = SignedAnnounce>> {
-        let results = self.query(args).await?.into_stream().boxed();
+        let results = tokio_stream::wrappers::ReceiverStream::new(self.query(args).await?).boxed();
         let dht = dht.as_async();
         let this = self.clone();
         let find_new_trackers = async move {
             // delay before querying the DHT
             tokio::time::sleep(Duration::from_millis(50)).await;
             let info_hash = to_infohash(args.content);
-            let mut addrs = dht.get_peers(info_hash).unwrap();
+            let mut addrs = dht.get_peers(info_hash);
             while let Some(addrs) = addrs.next().await {
                 for addr in addrs {
-                    this.add_tracker(addr).await.ok();
+                    this.add_tracker(addr.into()).await.ok();
                 }
             }
             future::pending::<SignedAnnounce>().await
@@ -474,7 +475,7 @@ impl UdpDiscovery {
     pub async fn add_tracker(&self, tracker: SocketAddr) -> anyhow::Result<()> {
         Ok(self
             .tx
-            .send_async(UdpActorMessage::AddTracker { tracker })
+            .send(UdpActorMessage::AddTracker { tracker })
             .await?)
     }
 
@@ -482,22 +483,20 @@ impl UdpDiscovery {
     pub async fn remove_tracker(&self, tracker: SocketAddr) -> anyhow::Result<()> {
         Ok(self
             .tx
-            .send_async(UdpActorMessage::RemoveTracker { tracker })
+            .send(UdpActorMessage::RemoveTracker { tracker })
             .await?)
     }
 
-    pub async fn query(&self, query: Query) -> anyhow::Result<flume::Receiver<SignedAnnounce>> {
+    pub async fn query(&self, query: Query) -> anyhow::Result<mpsc::Receiver<SignedAnnounce>> {
         let (tx, rx) = oneshot::channel();
-        self.tx
-            .send_async(UdpActorMessage::Query { query, tx })
-            .await?;
+        self.tx.send(UdpActorMessage::Query { query, tx }).await?;
         Ok(rx.await?)
     }
 
     pub async fn announce_once(&self, announce: SignedAnnounce) -> anyhow::Result<()> {
         let (tx, rx) = oneshot::channel();
         self.tx
-            .send_async(UdpActorMessage::AnnounceOnce { announce, tx })
+            .send(UdpActorMessage::AnnounceOnce { announce, tx })
             .await?;
         rx.await?;
         Ok(())
@@ -514,7 +513,7 @@ impl UdpDiscovery {
         })
         .into();
         self.tx
-            .send_async(UdpActorMessage::StoreAnnounceTask { announce, task })
+            .send(UdpActorMessage::StoreAnnounceTask { announce, task })
             .await?;
         Ok(())
     }
@@ -522,9 +521,9 @@ impl UdpDiscovery {
 
 struct UdpActor {
     socket: tokio::net::UdpSocket,
-    rx: flume::Receiver<UdpActorMessage>,
+    rx: mpsc::Receiver<UdpActorMessage>,
     trackers: BTreeSet<SocketAddr>,
-    listeners: BTreeMap<Query, Vec<flume::Sender<SignedAnnounce>>>,
+    listeners: BTreeMap<Query, Vec<mpsc::Sender<SignedAnnounce>>>,
     announces: BTreeMap<(HashAndFormat, AnnounceKind), AbortingJoinHandle<()>>,
 }
 
@@ -548,7 +547,7 @@ impl<T> Drop for AbortingJoinHandle<T> {
 enum UdpActorMessage {
     Query {
         query: Query,
-        tx: oneshot::Sender<flume::Receiver<SignedAnnounce>>,
+        tx: oneshot::Sender<mpsc::Receiver<SignedAnnounce>>,
     },
     AddTracker {
         tracker: SocketAddr,
@@ -572,11 +571,11 @@ impl UdpActor {
         let mut buf = [0u8; MAX_MSG_SIZE];
         loop {
             tokio::select! {
-                msg = self.rx.recv_async() => {
+                msg = self.rx.recv() => {
                     tracing::trace!("got msg {:?}", msg);
                     match msg {
-                        Ok(UdpActorMessage::Query { query, tx  }) => {
-                            let (announce_tx, announce_rx) = flume::bounded(1024);
+                        Some(UdpActorMessage::Query { query, tx  }) => {
+                            let (announce_tx, announce_rx) = mpsc::channel(1024);
                             self.listeners.entry(query).or_default().push(announce_tx);
                             let msg = Request::Query(query);
                             let msg = postcard::to_slice(&msg, &mut buf).unwrap();
@@ -586,7 +585,7 @@ impl UdpActor {
                             }
                             tx.send(announce_rx).ok();
                         }
-                        Ok(UdpActorMessage::AddTracker { tracker }) => {
+                        Some(UdpActorMessage::AddTracker { tracker }) => {
                             if self.trackers.insert(tracker) {
                                 for query in self.listeners.keys() {
                                     let msg = Request::Query(*query);
@@ -595,21 +594,21 @@ impl UdpActor {
                                 }
                             }
                         }
-                        Ok(UdpActorMessage::RemoveTracker { tracker }) => {
+                        Some(UdpActorMessage::RemoveTracker { tracker }) => {
                             self.trackers.remove(&tracker);
                         }
-                        Ok(UdpActorMessage::StoreAnnounceTask { announce, task }) => {
+                        Some(UdpActorMessage::StoreAnnounceTask { announce, task }) => {
                             let key = (announce.announce.content, announce.announce.kind);
                             self.announces.insert(key, task);
                         }
-                        Ok(UdpActorMessage::AnnounceOnce { announce, tx }) => {
+                        Some(UdpActorMessage::AnnounceOnce { announce, tx }) => {
                             let msg = postcard::to_slice(&Request::Announce(announce), &mut buf).unwrap();
                             for tracker in &self.trackers {
                                 self.socket.send_to(msg, tracker).await.ok();
                             }
                             tx.send(()).ok();
                         }
-                        Err(flume::RecvError::Disconnected) => break,
+                        None => break,
                     }
                 },
                 res = self.socket.recv_from(&mut buf) => {
@@ -642,7 +641,7 @@ impl UdpActor {
                                         }
                                         let mut to_remove = Vec::new();
                                         for (i, sender) in senders.iter().enumerate() {
-                                            if sender.send_async(sa).await.is_err() {
+                                            if sender.send(sa).await.is_err() {
                                                 to_remove.push(i);
                                             }
                                         }

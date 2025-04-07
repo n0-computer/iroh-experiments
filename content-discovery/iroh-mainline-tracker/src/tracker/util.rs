@@ -1,15 +1,15 @@
-use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 
 /// A wrapper for a flume receiver that allows peeking at the next message.
 #[derive(Debug)]
-pub(super) struct PeekableFlumeReceiver<T> {
+pub(super) struct PeekableReceiver<T> {
     msg: Option<T>,
-    recv: flume::Receiver<T>,
+    recv: mpsc::Receiver<T>,
 }
 
 #[allow(dead_code)]
-impl<T> PeekableFlumeReceiver<T> {
-    pub fn new(recv: flume::Receiver<T>) -> Self {
+impl<T> PeekableReceiver<T> {
+    pub fn new(recv: mpsc::Receiver<T>) -> Self {
         Self { msg: None, recv }
     }
 
@@ -17,9 +17,9 @@ impl<T> PeekableFlumeReceiver<T> {
     ///
     /// Will block if there are no messages.
     /// Returns None only if there are no more messages (sender is dropped).
-    pub fn peek(&mut self) -> Option<&T> {
+    pub async fn peek(&mut self) -> Option<&T> {
         if self.msg.is_none() {
-            self.msg = self.recv.recv().ok();
+            self.msg = self.recv.recv().await;
         }
         self.msg.as_ref()
     }
@@ -28,46 +28,11 @@ impl<T> PeekableFlumeReceiver<T> {
     ///
     /// Will block if there are no messages.
     /// Returns None only if there are no more messages (sender is dropped).
-    pub fn recv(&mut self) -> Option<T> {
+    pub async fn recv(&mut self) -> Option<T> {
         if let Some(msg) = self.msg.take() {
             return Some(msg);
         }
-        self.recv.recv().ok()
-    }
-
-    /// Try to peek at the next message.
-    ///
-    /// Will not block.
-    /// Returns None if reading would block, or if there are no more messages (sender is dropped).
-    pub fn try_peek(&mut self) -> Option<&T> {
-        if self.msg.is_none() {
-            self.msg = self.recv.try_recv().ok();
-        }
-        self.msg.as_ref()
-    }
-
-    /// Try to receive the next message.
-    ///
-    /// Will not block.
-    /// Returns None if reading would block, or if there are no more messages (sender is dropped).
-    pub fn try_recv(&mut self) -> Option<T> {
-        if let Some(msg) = self.msg.take() {
-            return Some(msg);
-        }
-        self.recv.try_recv().ok()
-    }
-
-    pub fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<T> {
-        if let Some(msg) = self.msg.take() {
-            return Some(msg);
-        }
-        self.recv.recv_timeout(timeout).ok()
-    }
-
-    /// Create an iterator that pulls messages from the receiver for at most
-    /// `count` messages or `max_duration` time.
-    pub fn batch_iter(&mut self, count: usize, max_duration: Duration) -> BatchIter<T> {
-        BatchIter::new(self, count, max_duration)
+        self.recv.recv().await
     }
 
     /// Push back a message. This will only work if there is room for it.
@@ -79,40 +44,5 @@ impl<T> PeekableFlumeReceiver<T> {
         } else {
             Err(msg)
         }
-    }
-}
-
-pub(super) struct BatchIter<'a, T> {
-    recv: &'a mut PeekableFlumeReceiver<T>,
-    start: Instant,
-    remaining: usize,
-    max_duration: Duration,
-}
-
-impl<'a, T> BatchIter<'a, T> {
-    fn new(recv: &'a mut PeekableFlumeReceiver<T>, count: usize, max_duration: Duration) -> Self {
-        Self {
-            recv,
-            start: Instant::now(),
-            remaining: count,
-            max_duration,
-        }
-    }
-}
-
-impl<T> Iterator for BatchIter<'_, T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining == 0 {
-            return None;
-        }
-        let elapsed = self.start.elapsed();
-        if elapsed >= self.max_duration {
-            return None;
-        }
-        let remaining_time = self.max_duration - elapsed;
-        self.remaining -= 1;
-        self.recv.recv_timeout(remaining_time)
     }
 }

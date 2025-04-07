@@ -106,8 +106,8 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
             verified: args.verified,
         },
     };
-    let res = discovery.query(q).await?;
-    for sa in res {
+    let mut res = discovery.query(q).await?;
+    while let Some(sa) = res.recv().await {
         if sa.verify().is_ok() {
             println!("{}: {:?}", sa.announce.host, sa.announce.kind);
         } else {

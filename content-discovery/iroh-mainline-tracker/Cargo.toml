@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = { version = "1", features = ["backtrace"] }
+anyhow = { workspace = true, features = ["backtrace"] }
 # needs to keep updated with the dep of iroh-blobs
 bao-tree = { version = "0.13", features = ["tokio_fsm"], default-features = false }
 bytes = "1"
@@ -20,9 +20,9 @@ hex = "0.4.3"
 humantime = "2.1.0"
 iroh = { workspace = true }
 iroh-blobs = { workspace = true }
-mainline = { version = "2.0.0", features = ["async"] }
-pkarr = { version = "2.0.3", features = ["async"] }
-postcard = { version = "1", default-features = false, features = ["alloc", "use-std"] }
+mainline = { workspace = true, features = ["async"] }
+pkarr = { workspace = true }
+postcard = { workspace = true, features = ["alloc", "use-std"] }
 rand = "0.8"
 rcgen = "0.12.0"
 redb = "1.5.0"
@@ -38,10 +38,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ttl_cache = "0.5.1"
 url = "2.5.0"
-flume = "0.11.0"
 genawaiter = { version = "0.99.1", features = ["futures03"] }
 iroh-mainline-content-discovery = { path = "../iroh-mainline-content-discovery", features = ["client"] }
-quinn = { package = "iroh-quinn", version = "0.13" }
+quinn = { workspace = true }
 
 clap = { version = "4", features = ["derive"], optional = true }
 serde-big-array = "0.5.1"
