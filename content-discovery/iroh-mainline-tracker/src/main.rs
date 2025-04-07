@@ -10,7 +10,7 @@ use std::{
 };
 
 use clap::Parser;
-use iroh::{discovery::pkarr::dht::DhtDiscovery, Endpoint, NodeId};
+use iroh::{Endpoint, NodeId};
 use iroh_blobs::util::fs::load_secret_key;
 use iroh_mainline_content_discovery::{protocol::ALPN, tls_utils};
 use iroh_mainline_tracker::{
@@ -62,16 +62,11 @@ async fn await_relay_region(endpoint: &Endpoint) -> anyhow::Result<()> {
 async fn create_endpoint(
     key: iroh::SecretKey,
     ipv4_addr: SocketAddrV4,
-    publish: bool,
 ) -> anyhow::Result<Endpoint> {
-    let mainline_discovery = if publish {
-        DhtDiscovery::builder().secret_key(key.clone()).build()?
-    } else {
-        DhtDiscovery::default()
-    };
     iroh::Endpoint::builder()
         .secret_key(key)
-        .discovery(Box::new(mainline_discovery))
+        .discovery_dht()
+        .discovery_n0()
         .alpns(vec![ALPN.to_vec()])
         .bind_addr_v4(ipv4_addr)
         .bind()
@@ -133,8 +128,9 @@ async fn server(args: Args) -> anyhow::Result<()> {
     let quinn_endpoint = quinn::Endpoint::server(server_config, quinn_bind_addr)?;
     // set the quinn port to the actual port we bound to so the DHT will announce it correctly
     options.quinn_port = quinn_endpoint.local_addr()?.port();
-    let iroh_endpoint = create_endpoint(key.clone(), options.iroh_ipv4_addr, true).await?;
+    let iroh_endpoint = create_endpoint(key.clone(), options.iroh_ipv4_addr).await?;
     let db = Tracker::new(options, iroh_endpoint.clone())?;
+    db.dump().await?;
     await_relay_region(&iroh_endpoint).await?;
     let addr = iroh_endpoint.node_addr().await?;
     log!("listening on {:?}", addr);

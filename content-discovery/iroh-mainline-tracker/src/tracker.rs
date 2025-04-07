@@ -26,7 +26,7 @@ use redb::{ReadableTable, RedbValue};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use tokio::sync::{mpsc, oneshot};
-use tokio_util::task::AbortOnDropHandle;
+use tracing::{debug, error, info, trace};
 
 mod tables;
 mod util;
@@ -70,7 +70,7 @@ struct Inner {
     /// To spawn non-send futures.
     local_pool: tokio_util::task::LocalPoolHandle,
     /// The handle to the actor thread.
-    handle: Option<AbortOnDropHandle<()>>,
+    handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Drop for Inner {
@@ -79,7 +79,9 @@ impl Drop for Inner {
             drop_permit.send(ActorMessage::Stop);
         }
         if let Some(handle) = self.handle.take() {
-            tokio::spawn(handle);
+            if let Err(_) = handle.join() {
+                error!("error joining actor thread");
+            }
         }
     }
 }
@@ -789,11 +791,14 @@ impl Tracker {
             actor.get_distinct_content(&tables)?
         };
         txn.commit()?;
-        let handle = AbortOnDropHandle::new(tokio::spawn(async move {
-            if let Err(cause) = actor.run(db).await {
-                tracing::error!("error in actor: {}", cause);
-            }
-        }));
+        let rt = tokio::runtime::Handle::current();
+        let handle = std::thread::spawn(move|| {
+            rt.block_on(async move {
+                if let Err(cause) = actor.run(db).await {
+                    tracing::error!("error in actor: {}", cause);
+                }
+            });
+        });
         let res = Self(Arc::new(Inner {
             actor: tx.clone(),
             drop_permit: Some(tx.try_reserve_owned().context("unable to reserve permit")?),
@@ -890,17 +895,17 @@ impl Tracker {
 
     pub async fn iroh_accept_loop(self, endpoint: Endpoint) -> std::io::Result<()> {
         while let Some(incoming) = endpoint.accept().await {
-            tracing::info!("got incoming");
+            info!("got incoming");
             let connecting = incoming.accept()?;
-            tracing::info!("got connecting");
+            info!("got connecting");
             let tracker = self.clone();
             tokio::spawn(async move {
                 let Ok((remote_node_id, alpn, conn)) = iroh_accept_conn(connecting).await else {
-                    tracing::error!("error accepting connection");
+                    error!("error accepting connection");
                     return;
                 };
                 // if we were supporting multiple protocols, we'd need to check the ALPN here.
-                tracing::info!(
+                info!(
                     "got connection from {} {:?}",
                     remote_node_id,
                     std::str::from_utf8(&alpn)
@@ -917,9 +922,9 @@ impl Tracker {
         let local_addr = endpoint.local_addr()?;
         println!("quinn listening on {local_addr:?}");
         while let Some(incoming) = endpoint.accept().await {
-            tracing::info!("got incoming");
+            info!("got incoming");
             let connecting = incoming.accept()?;
-            tracing::info!("got connecting");
+            info!("got connecting");
             let tracker = self.clone();
             tokio::spawn(async move {
                 let Ok((remote_node_id, alpn, conn)) = accept_conn(connecting).await else {
@@ -927,9 +932,9 @@ impl Tracker {
                     return;
                 };
                 // if we were supporting multiple protocols, we'd need to check the ALPN here.
-                tracing::info!("got connection from {} {}", remote_node_id, alpn);
+                info!("got connection from {} {}", remote_node_id, alpn);
                 if let Err(cause) = tracker.handle_quinn_connection(conn).await {
-                    tracing::error!("error handling connection: {}", cause);
+                    error!("error handling connection: {}", cause);
                 }
             });
         }
@@ -944,7 +949,7 @@ impl Tracker {
             let data = &buf[..len];
             let res = self.handle_udp_packet(data, &socket, addr).await;
             if let Err(cause) = res {
-                tracing::error!("error handling UDP packet: {}", cause);
+                error!("error handling UDP packet: {}", cause);
             }
         }
     }
@@ -955,21 +960,22 @@ impl Tracker {
         socket: &tokio::net::UdpSocket,
         addr: std::net::SocketAddr,
     ) -> anyhow::Result<()> {
-        tracing::trace!("got UDP packet from {}, {} bytes", addr, data.len());
+        trace!("got UDP packet from {}, {} bytes", addr, data.len());
         let request = postcard::from_bytes::<Request>(data)?;
         match request {
             Request::Announce(announce) => {
-                tracing::debug!("got announce: {:?}", announce);
+                debug!("got announce: {:?}", announce);
                 self.handle_announce(announce).await?;
             }
 
             Request::Query(query) => {
                 let mut buf = [0u8; 1200];
-                tracing::debug!("handle query: {:?}", query);
+                debug!("handle query: {:?}", query);
                 let response = self.handle_query(query).await?;
                 let response = Response::QueryResponse(response);
-                let response = postcard::to_slice(&response, &mut buf)?;
-                socket.send_to(response, addr).await?;
+                let response_bytes = postcard::to_slice(&response, &mut buf)?;
+                trace!("sending response, {:?} {} bytes", response, response_bytes.len());
+                socket.send_to(response_bytes, addr).await?;
             }
         }
         Ok(())
@@ -1262,7 +1268,7 @@ impl Tracker {
         let connection = match res {
             Ok(connection) => connection,
             Err(cause) => {
-                tracing::error!("error dialing host {}: {}", host, cause);
+                error!("error dialing host {}: {}", host, cause);
                 return Err(cause);
             }
         };
@@ -1280,7 +1286,7 @@ impl Tracker {
                 &res,
             )?;
             if let Err(cause) = &res {
-                tracing::debug!("error probing host {}: {}", host, cause);
+                debug!("error probing host {}: {}", host, cause);
             }
             results.push((content, announce_kind, res));
         }
@@ -1291,6 +1297,11 @@ impl Tracker {
         let (tx, rx) = oneshot::channel();
         self.0.actor.send(ActorMessage::Gc { tx }).await?;
         rx.await?
+    }
+
+    pub async fn dump(&self) -> anyhow::Result<()> {
+        self.0.actor.send(ActorMessage::Dump).await?;
+        Ok(())
     }
 }
 
