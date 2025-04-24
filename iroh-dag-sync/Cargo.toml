@@ -7,7 +7,7 @@ edition = "2021"
 iroh-blobs = "0.34"
 iroh-gossip = "0.34"
 iroh = "0.34"
-iroh-base = { version ="0.34", features = ["ticket"] }
+iroh-base = { version = "0.34", features = ["ticket"] }
 iroh-car = "0.5.0"
 redb = "2.1.1"
 clap = { version = "4.5.7", features = ["derive"] }
@@ -19,7 +19,7 @@ serde = { version = "1.0.203", features = ["derive"] }
 futures-lite = "2.3.0"
 iroh-io = "0.6"
 tokio-util = { version = "0.7.11", features = ["rt"] }
-bao-tree = "0.13.0"
+bao-tree = "0.15.0"
 genawaiter = "0.99.1"
 bytes = "1.6.0"
 hex = "0.4.3"
