@@ -7,7 +7,6 @@ pub(super) struct PeekableReceiver<T> {
     recv: mpsc::Receiver<T>,
 }
 
-#[allow(dead_code)]
 impl<T> PeekableReceiver<T> {
     pub fn new(recv: mpsc::Receiver<T>) -> Self {
         Self { msg: None, recv }

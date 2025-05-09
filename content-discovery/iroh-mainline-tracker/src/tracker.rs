@@ -1058,6 +1058,7 @@ impl Tracker {
                 send.finish()?;
             }
         }
+        connection.closed().await;
         Ok(())
     }
 
