@@ -1,7 +1,7 @@
 pub mod args;
 
 use std::{
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::SocketAddrV4,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -122,27 +122,27 @@ async fn server(args: Args) -> anyhow::Result<()> {
     log!("tracker starting using {}", home.display());
     let key_path = tracker_path(SERVER_KEY_FILE)?;
     let key = load_secret_key(key_path).await?;
-    let server_config = configure_server(&key)?;
-    let udp_bind_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, options.udp_port));
-    let udp_socket = tokio::net::UdpSocket::bind(udp_bind_addr).await?;
-    let quinn_bind_addr =
-        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, options.quinn_port));
-    let quinn_endpoint = quinn::Endpoint::server(server_config, quinn_bind_addr)?;
+    // let server_config = configure_server(&key)?;
+    // let udp_bind_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, options.udp_port));
+    // let udp_socket = tokio::net::UdpSocket::bind(udp_bind_addr).await?;
+    // let quinn_bind_addr =
+    //    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, options.quinn_port));
+    // let quinn_endpoint = quinn::Endpoint::server(server_config, quinn_bind_addr)?;
     // set the quinn port to the actual port we bound to so the DHT will announce it correctly
-    options.quinn_port = quinn_endpoint.local_addr()?.port();
+    // options.quinn_port = quinn_endpoint.local_addr()?.port();
     let iroh_endpoint = create_endpoint(key.clone(), options.iroh_ipv4_addr).await?;
     let db = Tracker::new(options, iroh_endpoint.clone())?;
     db.dump().await?;
     await_relay_region(&iroh_endpoint).await?;
     let addr = iroh_endpoint.node_addr().await?;
-    tracing::info!("listening on {:?}", addr);
-    tracing::info!("tracker addr: {}\n", addr.node_id);
-    let db2 = db.clone();
+    log!("listening on {:?}", addr);
+    log!("tracker addr: {}\n", addr.node_id);
+    // let db2 = db.clone();
     let db3 = db.clone();
-    let db4 = db.clone();
+    // let db4 = db.clone();
     let iroh_accept_task = tokio::spawn(db.iroh_accept_loop(iroh_endpoint));
-    let quinn_accept_task = tokio::spawn(db2.quinn_accept_loop(quinn_endpoint));
-    let udp_accept_task = tokio::spawn(db4.udp_accept_loop(udp_socket));
+    // let quinn_accept_task = tokio::spawn(db2.quinn_accept_loop(quinn_endpoint));
+    // let udp_accept_task = tokio::spawn(db4.udp_accept_loop(udp_socket));
     let gc_task = tokio::spawn(db3.gc_loop());
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
@@ -152,14 +152,14 @@ async fn server(args: Args) -> anyhow::Result<()> {
             tracing::error!("iroh accept task exited");
             res??;
         }
-        res = quinn_accept_task => {
-            tracing::error!("quinn accept task exited");
-            res??;
-        }
-        res = udp_accept_task => {
-            tracing::error!("udp accept task exited");
-            res??;
-        }
+        // res = quinn_accept_task => {
+        //     tracing::error!("quinn accept task exited");
+        //     res??;
+        // }
+        // res = udp_accept_task => {
+        //     tracing::error!("udp accept task exited");
+        //     res??;
+        // }
         res = gc_task => {
             tracing::error!("gc task exited");
             res??;
@@ -175,11 +175,11 @@ async fn main() -> anyhow::Result<()> {
     server(args).await
 }
 
-/// Returns default server configuration along with its certificate.
-#[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
-fn configure_server(secret_key: &iroh::SecretKey) -> anyhow::Result<quinn::ServerConfig> {
-    make_server_config(secret_key, 8, 1024, vec![ALPN.to_vec()])
-}
+// /// Returns default server configuration along with its certificate.
+// #[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
+// fn configure_server(secret_key: &iroh::SecretKey) -> anyhow::Result<quinn::ServerConfig> {
+//     make_server_config(secret_key, 8, 1024, vec![ALPN.to_vec()])
+// }
 
 /// Create a [`quinn::ServerConfig`] with the given secret key and limits.
 pub fn make_server_config(
