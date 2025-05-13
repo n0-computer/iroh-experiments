@@ -10,7 +10,6 @@ use clap::Parser;
 use futures::StreamExt;
 use iroh::endpoint;
 use iroh_mainline_content_discovery::{
-    create_quinn_client,
     protocol::{AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce},
     to_infohash, UdpDiscovery,
 };
@@ -28,10 +27,6 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
         anyhow::bail!("ANNOUNCE_SECRET env var is not a valid secret key");
     };
     let content = args.content.hash_and_format();
-    let bind_addr = SocketAddr::V4(SocketAddrV4::new(
-        Ipv4Addr::UNSPECIFIED,
-        args.udp_port.unwrap_or_default(),
-    ));
     let kind = if args.partial {
         AnnounceKind::Partial
     } else {
@@ -45,44 +40,16 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
         timestamp,
     };
     let signed_announce = SignedAnnounce::new(announce, &key)?;
-    if !args.udp_tracker.is_empty() {
-        let discovery = UdpDiscovery::new(bind_addr).await?;
-        for tracker in args.udp_tracker {
-            println!("announcing via udp to {:?}: {}", tracker, content);
-            discovery.add_tracker(tracker).await?;
-        }
-        discovery.announce_once(signed_announce).await?;
-    }
-    if !args.magicsock_tracker.is_empty() {
-        let addr = args
-            .iroh_ipv4_addr
-            .unwrap_or_else(|| "0.0.0.0:0".parse().unwrap());
+    if !args.tracker.is_empty() {
         let iroh_endpoint = endpoint::Endpoint::builder()
-            .bind_addr_v4(addr)
             .bind()
             .await?;
-        for tracker in args.magicsock_tracker {
+        for tracker in args.tracker {
             println!("announcing via magicsock to {:?}: {}", tracker, content);
             let connection = iroh_endpoint
                 .connect(tracker, iroh_mainline_content_discovery::protocol::ALPN)
                 .await?;
             iroh_mainline_content_discovery::announce_iroh(connection, signed_announce).await?;
-        }
-    }
-    if !args.quic_tracker.is_empty() {
-        let bind_addr = SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::UNSPECIFIED,
-            args.quic_port.unwrap_or_default(),
-        ));
-        let quinn_endpoint = create_quinn_client(
-            bind_addr,
-            vec![iroh_mainline_content_discovery::protocol::ALPN.to_vec()],
-            false,
-        )?;
-        for tracker in args.quic_tracker {
-            println!("announcing via quic to {:?}: {}", tracker, content);
-            let connection = quinn_endpoint.connect(tracker, "localhost")?.await?;
-            iroh_mainline_content_discovery::announce_quinn(connection, signed_announce).await?;
         }
     }
 
@@ -91,27 +58,33 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
 }
 
 async fn query(args: QueryArgs) -> anyhow::Result<()> {
-    let bind_addr = SocketAddr::V4(SocketAddrV4::new(
-        Ipv4Addr::UNSPECIFIED,
-        args.udp_port.unwrap_or_default(),
-    ));
-    let discovery = iroh_mainline_content_discovery::UdpDiscovery::new(bind_addr).await?;
-    for tracker in args.tracker {
-        discovery.add_tracker(tracker).await?;
-    }
-    let q = Query {
+    let query = Query {
         content: args.content.hash_and_format(),
         flags: QueryFlags {
             complete: !args.partial,
             verified: args.verified,
         },
     };
-    let mut res = discovery.query(q).await?;
-    while let Some(sa) = res.recv().await {
-        if sa.verify().is_ok() {
-            println!("{}: {:?}", sa.announce.host, sa.announce.kind);
-        } else {
-            println!("invalid announce");
+    let ep = endpoint::Endpoint::builder()
+        .discovery_dht()
+        .discovery_n0()
+        .bind()
+        .await?;
+    for tracker in args.tracker {
+        let conn = ep.connect(tracker, iroh_mainline_content_discovery::protocol::ALPN).await?;
+        let res = match iroh_mainline_content_discovery::query_iroh(conn, query.clone()).await {
+            Ok(res) => res,
+            Err(e) => {
+                eprintln!("failed to query tracker {}: {}", tracker, e);
+                continue;
+            }
+        };
+        for announce in res.hosts {
+            if announce.verify().is_ok() {
+                println!("{}: {:?}", announce.announce.host, announce.announce.kind);
+            } else {
+                println!("invalid announce");
+            }
         }
     }
     Ok(())

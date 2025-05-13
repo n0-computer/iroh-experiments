@@ -1,7 +1,6 @@
 //! Command line arguments.
 use std::{
     fmt::Display,
-    net::{SocketAddr, SocketAddrV4},
     str::FromStr,
 };
 
@@ -72,17 +71,10 @@ impl FromStr for ContentArg {
 
 #[derive(Parser, Debug)]
 pub struct AnnounceArgs {
-    /// trackers to announce to via udp
-    #[clap(long)]
-    pub udp_tracker: Vec<SocketAddr>,
-
-    /// trackers to announce to via quic
-    #[clap(long)]
-    pub quic_tracker: Vec<SocketAddr>,
 
     /// trackers to announce to via magicsock
     #[clap(long)]
-    pub magicsock_tracker: Vec<NodeId>,
+    pub tracker: Vec<NodeId>,
 
     /// The content to announce.
     ///
@@ -94,25 +86,13 @@ pub struct AnnounceArgs {
     /// Announce that the peer has only partial data.
     #[clap(long)]
     pub partial: bool,
-
-    /// the port to use for announcing via udp
-    #[clap(long)]
-    pub udp_port: Option<u16>,
-
-    /// the ipv4 to use for announcing via iroh
-    #[clap(long)]
-    pub iroh_ipv4_addr: Option<SocketAddrV4>,
-
-    /// the port to use for announcing via quic
-    #[clap(long)]
-    pub quic_port: Option<u16>,
 }
 
 #[derive(Parser, Debug)]
 pub struct QueryArgs {
     /// the tracker to query
     #[clap(long)]
-    pub tracker: Vec<SocketAddr>,
+    pub tracker: Vec<NodeId>,
 
     /// The content to find hosts for.
     pub content: ContentArg,
