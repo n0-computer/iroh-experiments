@@ -135,14 +135,8 @@ async fn server(args: Args) -> anyhow::Result<()> {
     db.dump().await?;
     await_relay_region(&iroh_endpoint).await?;
     let addr = iroh_endpoint.node_addr().await?;
-    log!("listening on {:?}", addr);
-    log!("tracker addr: {}\n", addr.node_id);
-    log!("usage:");
-    log!("tracker announce --tracker {} <tickets>", addr.node_id);
-    log!(
-        "tracker query --tracker {} <hash> or <ticket>",
-        addr.node_id
-    );
+    tracing::info!("listening on {:?}", addr);
+    tracing::info!("tracker addr: {}\n", addr.node_id);
     let db2 = db.clone();
     let db3 = db.clone();
     let db4 = db.clone();
