@@ -39,6 +39,8 @@ macro_rules! log {
     ($($arg:tt)*) => {
         if $crate::verbose() {
             println!($($arg)*);
+        } else {
+            tracing::info!($($arg)*);
         }
     };
 }
