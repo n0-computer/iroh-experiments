@@ -18,7 +18,7 @@ static ALPN: &[u8] = b"iroh+h3";
 /// This implementation is not production ready.  E.g. it copies the entire requests and
 /// responses in memory.  It serves more as an example.
 pub async fn serve(endpoint: Endpoint, router: axum::Router) -> Result<()> {
-    endpoint.set_alpns(vec![ALPN.to_vec()])?;
+    endpoint.set_alpns(vec![ALPN.to_vec()]);
     while let Some(incoming) = endpoint.accept().await {
         trace!("accepting connection");
         let router = router.clone();

@@ -26,9 +26,9 @@ missing_debug_implementations = "warn"
 unused-async = "warn"
 
 [workspace.dependencies]
-iroh = { version ="0.34", features = ["discovery-pkarr-dht"] }
-iroh-base = "0.34"
-iroh-blobs = { version = "0.34", features = ["rpc"] }
+iroh = { version ="0.35", features = ["discovery-pkarr-dht"] }
+iroh-base = "0.35"
+iroh-blobs = { version = "0.35", features = ["rpc"] }
 # explicitly specified until iroh minimal crates issues are solved, see https://github.com/n0-computer/iroh/pull/3255
 tokio = { version = "1.44.1" }
 tokio-stream = { version = "0.1.17" }
