@@ -1195,18 +1195,6 @@ impl Tracker {
     }
 }
 
-/// Extract the ALPN protocol from the peer's TLS certificate.
-pub async fn get_alpn(connecting: &mut quinn::Connecting) -> anyhow::Result<String> {
-    let data = connecting.handshake_data().await?;
-    match data.downcast::<quinn::crypto::rustls::HandshakeData>() {
-        Ok(data) => match data.protocol {
-            Some(protocol) => std::string::String::from_utf8(protocol).map_err(Into::into),
-            None => anyhow::bail!("no ALPN protocol available"),
-        },
-        Err(_) => anyhow::bail!("unknown handshake type"),
-    }
-}
-
 /// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
 async fn iroh_accept_conn(
     mut conn: iroh::endpoint::Connecting,

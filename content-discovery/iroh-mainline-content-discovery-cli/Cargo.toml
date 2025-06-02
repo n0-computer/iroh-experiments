@@ -11,7 +11,6 @@ license = "MIT OR Apache-2.0"
 iroh = { workspace = true }
 iroh-blobs = { workspace = true }
 iroh-mainline-content-discovery = { path = "../iroh-mainline-content-discovery" }
-mainline = { workspace = true }
 anyhow = { workspace = true, features = ["backtrace"] }
 futures = { version = "0.3.25" }
 clap = { version = "4", features = ["derive"] }

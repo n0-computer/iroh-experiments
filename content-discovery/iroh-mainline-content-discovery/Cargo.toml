@@ -24,7 +24,6 @@ hex = "0.4.3"
 tracing = { version = "0.1", optional = true }
 anyhow = { workspace = true, features = ["backtrace"], optional = true }
 postcard = { workspace = true, features = ["alloc", "use-std"], optional = true }
-genawaiter = { version = "0.99.1", features = ["futures03"], optional = true }
 tokio = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
 n0-future = { workspace = true, optional = true }
@@ -34,7 +33,6 @@ futures-buffered = { workspace = true, optional = true }
 client = [
     "dep:tracing",
     "dep:anyhow",
-    "dep:genawaiter",
     "dep:postcard",
     "dep:tokio",
     "dep:n0-future",

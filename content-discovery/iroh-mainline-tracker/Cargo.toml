@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = { workspace = true, features = ["backtrace"] }
 # needs to keep updated with the dep of iroh-blobs
-bao-tree = { version = "0.15", features = ["tokio_fsm"], default-features = false }
+bao-tree = { version = "0.15.1", features = ["tokio_fsm"], default-features = false }
 bytes = "1"
 derive_more = { version = "1", features = ["debug", "display", "from", "try_into"] }
 dirs-next = "2"
@@ -34,9 +34,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ttl_cache = "0.5.1"
 url = "2.5.0"
-genawaiter = { version = "0.99.1", features = ["futures03"] }
 iroh-mainline-content-discovery = { path = "../iroh-mainline-content-discovery", features = ["client"] }
-quinn = { workspace = true }
 
 clap = { version = "4", features = ["derive"], optional = true }
 serde-big-array = "0.5.1"
