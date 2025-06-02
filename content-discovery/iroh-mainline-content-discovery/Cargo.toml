@@ -22,41 +22,22 @@ hex = "0.4.3"
 
 # Optional features for the client functionality
 tracing = { version = "0.1", optional = true }
-quinn = { workspace = true, optional = true }
 anyhow = { workspace = true, features = ["backtrace"], optional = true }
 postcard = { workspace = true, features = ["alloc", "use-std"], optional = true }
-futures = { workspace = true, optional = true }
-rcgen = { workspace = true, optional = true }
-rustls = { workspace = true, features = ["ring"], optional = true }
 genawaiter = { version = "0.99.1", features = ["futures03"], optional = true }
 tokio = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
-
-# dependencies for the tls utils
-der = { version = "0.7", features = ["alloc", "derive"], optional = true }
-webpki = { package = "rustls-webpki", version = "0.102", optional = true }
-x509-parser = { version = "0.16", optional = true }
-thiserror = { version = "2", optional = true }
-ring = { version = "0.17", optional = true }
+n0-future = { workspace = true, optional = true }
+futures-buffered = { workspace = true, optional = true }
 
 [features]
 client = [
-    "dep:quinn",
     "dep:tracing",
     "dep:anyhow",
-    "dep:rcgen",
     "dep:genawaiter",
-    "dep:rustls",
-    "dep:futures",
     "dep:postcard",
     "dep:tokio",
-    "tls-utils",
-]
-tls-utils = [
-    "dep:der",
-    "dep:webpki",
-    "dep:x509-parser",
-    "dep:thiserror",
-    "dep:ring",
+    "dep:n0-future",
+    "dep:futures-buffered",
 ]
 default = ["client"]

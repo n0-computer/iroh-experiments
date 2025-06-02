@@ -33,6 +33,7 @@ impl AnnounceKind {
     }
 }
 
+/// An absolute time in microseconds since the UNIX epoch.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AbsoluteTime(u64);
 

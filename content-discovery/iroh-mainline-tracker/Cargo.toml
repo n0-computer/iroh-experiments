@@ -10,9 +10,9 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = { workspace = true, features = ["backtrace"] }
 # needs to keep updated with the dep of iroh-blobs
-bao-tree = { version = "0.13", features = ["tokio_fsm"], default-features = false }
+bao-tree = { version = "0.15", features = ["tokio_fsm"], default-features = false }
 bytes = "1"
-derive_more = { version = "1.0.0-beta.1", features = ["debug", "display", "from", "try_into"] }
+derive_more = { version = "1", features = ["debug", "display", "from", "try_into"] }
 dirs-next = "2"
 ed25519-dalek = "2.1.0"
 futures = "0.3.25"
@@ -20,14 +20,10 @@ hex = "0.4.3"
 humantime = "2.1.0"
 iroh = { workspace = true }
 iroh-blobs = { workspace = true }
-mainline = { workspace = true, features = ["async"] }
-pkarr = { workspace = true }
 postcard = { workspace = true, features = ["alloc", "use-std"] }
 rand = "0.8"
 rcgen = "0.12.0"
 redb = "1.5.0"
-rustls = "0.21"
-rustls-pki-types = "1.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.107"
 tempfile = "3.4"

@@ -41,7 +41,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
             let connection = iroh_endpoint
                 .connect(tracker, iroh_mainline_content_discovery::protocol::ALPN)
                 .await?;
-            iroh_mainline_content_discovery::announce_iroh(connection, signed_announce).await?;
+            iroh_mainline_content_discovery::announce(connection, signed_announce).await?;
         }
     }
 
@@ -66,7 +66,7 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
         let conn = ep
             .connect(tracker, iroh_mainline_content_discovery::protocol::ALPN)
             .await?;
-        let res = match iroh_mainline_content_discovery::query_iroh(conn, query.clone()).await {
+        let res = match iroh_mainline_content_discovery::query(conn, query.clone()).await {
             Ok(res) => res,
             Err(e) => {
                 eprintln!("failed to query tracker {}: {}", tracker, e);
