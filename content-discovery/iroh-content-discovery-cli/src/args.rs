@@ -68,7 +68,7 @@ impl FromStr for ContentArg {
 #[derive(Parser, Debug)]
 pub struct AnnounceArgs {
     /// trackers to announce to via magicsock
-    #[clap(long)]
+    #[clap(long, required = true)]
     pub tracker: Vec<NodeId>,
 
     /// The content to announce.
@@ -86,7 +86,7 @@ pub struct AnnounceArgs {
 #[derive(Parser, Debug)]
 pub struct QueryArgs {
     /// the tracker to query
-    #[clap(long)]
+    #[clap(long, required = true)]
     pub tracker: Vec<NodeId>,
 
     /// The content to find hosts for.
@@ -99,30 +99,4 @@ pub struct QueryArgs {
     /// Ask for hosts that were recently checked and found to have some data
     #[clap(long)]
     pub verified: bool,
-
-    /// the port to use for querying
-    #[clap(long)]
-    pub udp_port: Option<u16>,
-}
-
-#[derive(Parser, Debug)]
-pub struct QueryDhtArgs {
-    /// The content to find hosts for.
-    pub content: ContentArg,
-
-    /// Ask for hosts that were announced as having just partial data
-    #[clap(long)]
-    pub partial: bool,
-
-    /// Ask for hosts that were recently checked and found to have some data
-    #[clap(long)]
-    pub verified: bool,
-
-    /// Parallelism for querying the dht
-    #[clap(long)]
-    pub query_parallelism: Option<usize>,
-
-    /// the port to use for querying
-    #[clap(long)]
-    pub udp_port: Option<u16>,
 }

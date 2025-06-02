@@ -14,7 +14,7 @@ use iroh_blobs::{
     protocol::GetRequest,
     BlobFormat, Hash, HashAndFormat,
 };
-use iroh_mainline_content_discovery::protocol::{
+use iroh_content_discovery::protocol::{
     AbsoluteTime, Announce, AnnounceKind, Query, QueryResponse, Request, Response, SignedAnnounce,
     REQUEST_SIZE_LIMIT,
 };
@@ -23,7 +23,7 @@ use redb::{ReadableTable, RedbValue};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 mod tables;
 mod util;
@@ -354,9 +354,9 @@ impl Actor {
         tables: &mut Tables,
         signed_announce: SignedAnnounce,
     ) -> anyhow::Result<AnnounceResponse> {
-        tracing::info!("got announce");
+        info!("got announce");
         signed_announce.verify()?;
-        tracing::info!("verified announce: {:?}", signed_announce);
+        info!("verified announce: {:?}", signed_announce);
         let content = signed_announce.content;
         let (path, value1) = split_signed_announce(signed_announce);
         // true if this is entirely new content, false if it is just a new host for existing content
@@ -403,6 +403,7 @@ impl Actor {
             let (path, value) = entry?;
             let path = path.value();
             let value = value.value();
+            trace!("iterating announce entry {:?} -> {:?}", path, value);
             if kind == AnnounceKind::Complete && path.announce_kind() == AnnounceKind::Partial {
                 // we only want complete announces
                 continue;
@@ -410,7 +411,7 @@ impl Actor {
             let recently_announced = now - value.timestamp <= options.announce_timeout;
             if !recently_announced {
                 // announce is too old
-                tracing::error!("announce is too old");
+                error!("announce is too old");
                 continue;
             }
             if query.flags.verified {
@@ -420,13 +421,14 @@ impl Actor {
                     .unwrap_or_default();
                 if !recently_probed {
                     // query asks for verificated hosts, but the last successful probe is too old
-                    tracing::error!("verification of complete data is too old");
+                    error!("verification of complete data is too old");
                     continue;
                 }
             }
             let signed_announce = join_signed_announce(path, value);
             announces.push(signed_announce);
         }
+        trace!("{:?} announces found", announces.len());
         Ok(QueryResponse { hosts: announces })
     }
 
@@ -447,6 +449,7 @@ impl Actor {
     }
 
     fn handle_dump(&self, tables: &impl ReadableTables) -> anyhow::Result<()> {
+        println!("Dumping announces and probes:");
         for entry in tables.announces().iter()? {
             let (path, value) = entry?;
             let path = path.value();
@@ -541,7 +544,7 @@ fn join_signed_announce(path: AnnouncePath, value: AnnounceValue) -> SignedAnnou
 
 #[derive(derive_more::Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct AnnouncePath {
-    #[debug("{}", self.content().hash)]
+    #[debug("{}", self.content().hash.to_hex())]
     hash: [u8; 32],
     #[debug("{:?}", self.content().format)]
     format: u8,
@@ -605,7 +608,7 @@ impl AnnouncePath {
     fn format_short(&self) -> String {
         format!(
             "({}, {:?}, {:?}, {})",
-            self.content().hash,
+            self.content().hash.to_hex(),
             self.content().format,
             self.announce_kind(),
             self.node()
@@ -786,7 +789,7 @@ impl Tracker {
     ///
     /// You will have to drive the tracker server yourself, using `handle_connection` and `probe_loop`.
     pub fn new(options: Options, endpoint: Endpoint) -> anyhow::Result<Self> {
-        tracing::info!(
+        info!(
             "creating tracker using database at {}",
             options.announce_data_path.display()
         );
@@ -909,20 +912,20 @@ impl Tracker {
         &self,
         connection: iroh::endpoint::Connection,
     ) -> anyhow::Result<()> {
-        tracing::debug!("calling accept_bi");
+        debug!("calling accept_bi");
         let (mut send, mut recv) = connection.accept_bi().await?;
-        tracing::debug!("got bi stream");
+        debug!("got bi stream");
         let request = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
         let request = postcard::from_bytes::<Request>(&request)?;
         match request {
             Request::Announce(announce) => {
-                tracing::debug!("got announce: {:?}", announce);
+                debug!("got announce: {:?}", announce);
                 self.handle_announce(announce).await?;
                 send.finish()?;
             }
 
             Request::Query(query) => {
-                tracing::debug!("handle query: {:?}", query);
+                debug!("handle query: {:?}", query);
                 let response = self.handle_query(query).await?;
                 let response = Response::QueryResponse(response);
                 let response = postcard::to_stdvec(&response)?;
@@ -1086,9 +1089,9 @@ impl Tracker {
     }
 
     async fn handle_announce(&self, announce: SignedAnnounce) -> anyhow::Result<()> {
-        tracing::info!("got announce");
+        debug!("got announce");
         announce.verify()?;
-        tracing::info!("verified announce: {:?}", announce);
+        debug!("verified announce: {:?}", announce);
 
         let (tx, rx) = oneshot::channel();
         self.0
@@ -1159,7 +1162,7 @@ impl Tracker {
         let connection = match res {
             Ok(connection) => connection,
             Err(cause) => {
-                error!("error dialing host {}: {}", host, cause);
+                debug!("error dialing host {}: {}", host, cause);
                 return Err(cause);
             }
         };

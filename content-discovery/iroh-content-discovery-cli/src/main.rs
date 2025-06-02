@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use clap::Parser;
 use iroh::endpoint;
-use iroh_mainline_content_discovery::protocol::{
+use iroh_content_discovery::protocol::{
     AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -39,9 +39,9 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
         for tracker in args.tracker {
             println!("announcing via magicsock to {:?}: {}", tracker, content);
             let connection = iroh_endpoint
-                .connect(tracker, iroh_mainline_content_discovery::protocol::ALPN)
+                .connect(tracker, iroh_content_discovery::protocol::ALPN)
                 .await?;
-            iroh_mainline_content_discovery::announce(connection, signed_announce).await?;
+            iroh_content_discovery::announce(connection, signed_announce).await?;
         }
     }
 
@@ -64,9 +64,9 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
         .await?;
     for tracker in args.tracker {
         let conn = ep
-            .connect(tracker, iroh_mainline_content_discovery::protocol::ALPN)
+            .connect(tracker, iroh_content_discovery::protocol::ALPN)
             .await?;
-        let res = match iroh_mainline_content_discovery::query(conn, query).await {
+        let res = match iroh_content_discovery::query(conn, query).await {
             Ok(res) => res,
             Err(e) => {
                 eprintln!("failed to query tracker {}: {}", tracker, e);

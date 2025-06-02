@@ -1,5 +1,6 @@
 use iroh::{endpoint::Connection, Endpoint, NodeId};
 use n0_future::{BufferedStreamExt, Stream, StreamExt};
+use tracing::{debug, info};
 
 use crate::protocol::{
     Query, QueryResponse, Request, Response, SignedAnnounce, ALPN, REQUEST_SIZE_LIMIT,
@@ -18,10 +19,10 @@ pub async fn announce(
     signed_announce: SignedAnnounce,
 ) -> anyhow::Result<()> {
     let (mut send, mut recv) = connection.open_bi().await?;
-    tracing::debug!("opened bi stream");
+    debug!("opened bi stream");
     let request = Request::Announce(signed_announce);
     let request = postcard::to_stdvec(&request)?;
-    tracing::debug!("sending announce");
+    debug!("sending announce");
     send.write_all(&request).await?;
     send.finish()?;
     let _response = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
@@ -65,12 +66,12 @@ pub async fn query(
     connection: iroh::endpoint::Connection,
     args: Query,
 ) -> anyhow::Result<QueryResponse> {
-    tracing::info!("connected to {:?}", connection.remote_node_id()?);
+    info!("connected to {:?}", connection.remote_node_id()?);
     let (mut send, mut recv) = connection.open_bi().await?;
-    tracing::info!("opened bi stream");
+    info!("opened bi stream");
     let request = Request::Query(args);
     let request = postcard::to_stdvec(&request)?;
-    tracing::info!("sending query");
+    info!("sending query");
     send.write_all(&request).await?;
     send.finish()?;
     let response = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
@@ -87,7 +88,7 @@ pub async fn connect(tracker: NodeId) -> anyhow::Result<iroh::endpoint::Connecti
     // let key = load_secret_key(tracker_path(CLIENT_KEY)?).await?;
     let key = iroh::SecretKey::generate(rand::thread_rng());
     let endpoint = Endpoint::builder().secret_key(key).bind().await?;
-    tracing::info!("trying to connect to tracker at {:?}", tracker);
+    info!("trying to connect to tracker at {:?}", tracker);
     let connection = endpoint.connect(tracker, ALPN).await?;
     Ok(connection)
 }

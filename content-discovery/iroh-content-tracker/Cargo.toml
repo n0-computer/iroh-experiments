@@ -1,8 +1,8 @@
 [package]
-name = "iroh-mainline-tracker"
+name = "iroh-content-tracker"
 version = "0.3.0"
 edition = "2021"
-description = "Content tracker for iroh, using the bittorrent mainline DHT"
+description = "Content tracker for iroh, using a simple tracker protocol"
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -34,7 +34,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ttl_cache = "0.5.1"
 url = "2.5.0"
-iroh-mainline-content-discovery = { path = "../iroh-mainline-content-discovery", features = ["client"] }
+iroh-content-discovery = { path = "../iroh-content-discovery", features = ["client"] }
 
 clap = { version = "4", features = ["derive"], optional = true }
 serde-big-array = "0.5.1"
@@ -44,5 +44,5 @@ cli = ["clap"]
 default = ["cli"]
 
 [[bin]]
-name = "iroh-mainline-tracker"
+name = "iroh-content-tracker"
 required-features = ["cli"]

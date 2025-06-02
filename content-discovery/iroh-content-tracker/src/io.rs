@@ -10,7 +10,7 @@ use std::{
 use anyhow::Context;
 use iroh::NodeId;
 use iroh_blobs::{get::Stats, HashAndFormat};
-use iroh_mainline_content_discovery::protocol::{AnnounceKind, SignedAnnounce};
+use iroh_content_discovery::protocol::{AnnounceKind, SignedAnnounce};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing_subscriber::{prelude::*, EnvFilter};
 

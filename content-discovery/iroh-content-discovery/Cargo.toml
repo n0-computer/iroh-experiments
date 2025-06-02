@@ -1,8 +1,8 @@
 [package]
-name = "iroh-mainline-content-discovery"
+name = "iroh-content-discovery"
 version = "0.6.0"
 edition = "2021"
-description = "Content discovery for iroh, using the bittorrent mainline DHT"
+description = "Content discovery for iroh, using a simple tracker protocol"
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
