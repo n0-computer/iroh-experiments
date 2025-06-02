@@ -15,7 +15,7 @@ use crate::protocol::{
 /// You can only announce content you yourself claim to have, to avoid spamming other nodes.
 ///
 /// `endpoint` is the iroh endpoint to use for announcing.
-/// `tracker` is the node id of the tracker to announce to. It must understand the [TRACKER_ALPN] protocol.
+/// `tracker` is the node id of the tracker to announce to. It must understand the [crate::ALPN] protocol.
 /// `content` is the content to announce.
 /// `kind` is the kind of the announcement. We can claim to have the complete data or only some of it.
 pub async fn announce_iroh(

@@ -8,3 +8,4 @@ mod client;
 pub mod protocol;
 #[cfg(feature = "client")]
 pub use client::*;
+pub use protocol::ALPN;
