@@ -1,8 +1,5 @@
 //! Command line arguments.
-use std::{
-    fmt::Display,
-    str::FromStr,
-};
+use std::{fmt::Display, str::FromStr};
 
 use clap::{Parser, Subcommand};
 use iroh::NodeId;
@@ -18,7 +15,6 @@ pub struct Args {
 pub enum Commands {
     Announce(AnnounceArgs),
     Query(QueryArgs),
-    QueryDht(QueryDhtArgs),
 }
 
 /// Various ways to specify content.
@@ -71,7 +67,6 @@ impl FromStr for ContentArg {
 
 #[derive(Parser, Debug)]
 pub struct AnnounceArgs {
-
     /// trackers to announce to via magicsock
     #[clap(long)]
     pub tracker: Vec<NodeId>,

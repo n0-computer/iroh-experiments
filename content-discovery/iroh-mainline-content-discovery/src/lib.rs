@@ -8,5 +8,3 @@ mod client;
 pub mod protocol;
 #[cfg(feature = "client")]
 pub use client::*;
-#[cfg(feature = "tls-utils")]
-pub mod tls_utils;

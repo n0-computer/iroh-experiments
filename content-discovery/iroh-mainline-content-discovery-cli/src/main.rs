@@ -1,17 +1,11 @@
 pub mod args;
 
-use std::{
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    str::FromStr,
-};
+use std::str::FromStr;
 
-use args::QueryDhtArgs;
 use clap::Parser;
-use futures::StreamExt;
 use iroh::endpoint;
-use iroh_mainline_content_discovery::{
-    protocol::{AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce},
-    to_infohash, UdpDiscovery,
+use iroh_mainline_content_discovery::protocol::{
+    AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -41,9 +35,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
     };
     let signed_announce = SignedAnnounce::new(announce, &key)?;
     if !args.tracker.is_empty() {
-        let iroh_endpoint = endpoint::Endpoint::builder()
-            .bind()
-            .await?;
+        let iroh_endpoint = endpoint::Endpoint::builder().bind().await?;
         for tracker in args.tracker {
             println!("announcing via magicsock to {:?}: {}", tracker, content);
             let connection = iroh_endpoint
@@ -71,7 +63,9 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
         .bind()
         .await?;
     for tracker in args.tracker {
-        let conn = ep.connect(tracker, iroh_mainline_content_discovery::protocol::ALPN).await?;
+        let conn = ep
+            .connect(tracker, iroh_mainline_content_discovery::protocol::ALPN)
+            .await?;
         let res = match iroh_mainline_content_discovery::query_iroh(conn, query.clone()).await {
             Ok(res) => res,
             Err(e) => {
@@ -85,33 +79,6 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
             } else {
                 println!("invalid announce");
             }
-        }
-    }
-    Ok(())
-}
-
-async fn query_dht(args: QueryDhtArgs) -> anyhow::Result<()> {
-    let bind_addr = SocketAddr::V4(SocketAddrV4::new(
-        Ipv4Addr::UNSPECIFIED,
-        args.udp_port.unwrap_or_default(),
-    ));
-    let discovery = UdpDiscovery::new(bind_addr).await?;
-    let dht = mainline::Dht::client()?;
-    let q = Query {
-        content: args.content.hash_and_format(),
-        flags: QueryFlags {
-            complete: !args.partial,
-            verified: args.verified,
-        },
-    };
-    println!("content corresponds to infohash {}", to_infohash(q.content));
-
-    let mut stream = discovery.query_dht(dht, q).await?;
-    while let Some(announce) = stream.next().await {
-        if announce.verify().is_ok() {
-            println!("found verified provider {}", announce.host);
-        } else {
-            println!("got wrong signed announce!");
         }
     }
     Ok(())
@@ -133,6 +100,5 @@ async fn main() -> anyhow::Result<()> {
     match args.command {
         Commands::Announce(args) => announce(args).await,
         Commands::Query(args) => query(args).await,
-        Commands::QueryDht(args) => query_dht(args).await,
     }
 }

@@ -2,17 +2,14 @@ pub mod args;
 
 use std::{
     net::SocketAddrV4,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
 use clap::Parser;
 use iroh::{Endpoint, NodeId};
 use iroh_blobs::util::fs::load_secret_key;
-use iroh_mainline_content_discovery::{protocol::ALPN, tls_utils};
+use iroh_mainline_content_discovery::protocol::ALPN;
 use iroh_mainline_tracker::{
     io::{
         self, load_from_file, setup_logging, tracker_home, tracker_path, CONFIG_DEBUG_FILE,
@@ -173,30 +170,4 @@ async fn main() -> anyhow::Result<()> {
     setup_logging();
     let args = Args::parse();
     server(args).await
-}
-
-// /// Returns default server configuration along with its certificate.
-// #[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
-// fn configure_server(secret_key: &iroh::SecretKey) -> anyhow::Result<quinn::ServerConfig> {
-//     make_server_config(secret_key, 8, 1024, vec![ALPN.to_vec()])
-// }
-
-/// Create a [`quinn::ServerConfig`] with the given secret key and limits.
-pub fn make_server_config(
-    secret_key: &iroh::SecretKey,
-    max_streams: u64,
-    max_connections: u32,
-    alpn_protocols: Vec<Vec<u8>>,
-) -> anyhow::Result<quinn::ServerConfig> {
-    let tls_server_config = tls_utils::make_server_config(secret_key, alpn_protocols, false)?;
-    let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(tls_server_config));
-    let mut transport_config = quinn::TransportConfig::default();
-    transport_config
-        .max_concurrent_bidi_streams(max_streams.try_into()?)
-        .max_concurrent_uni_streams(0u32.into());
-
-    server_config
-        .transport_config(Arc::new(transport_config))
-        .max_incoming(max_connections as usize);
-    Ok(server_config)
 }
