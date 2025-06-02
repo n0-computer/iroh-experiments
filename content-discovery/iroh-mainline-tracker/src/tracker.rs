@@ -172,6 +172,7 @@ struct GetDistinctContentResponse {
 
 #[derive(derive_more::Debug)]
 struct AnnounceResponse {
+    #[allow(dead_code)]
     new_content: bool,
     new_host_for_content: bool,
 }

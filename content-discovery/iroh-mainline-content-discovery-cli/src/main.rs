@@ -66,7 +66,7 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
         let conn = ep
             .connect(tracker, iroh_mainline_content_discovery::protocol::ALPN)
             .await?;
-        let res = match iroh_mainline_content_discovery::query(conn, query.clone()).await {
+        let res = match iroh_mainline_content_discovery::query(conn, query).await {
             Ok(res) => res,
             Err(e) => {
                 eprintln!("failed to query tracker {}: {}", tracker, e);
