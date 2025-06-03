@@ -29,10 +29,13 @@ Will run the server with a persistent node id and announce information.
 
 When announcing content, you can give either iroh tickets or content hashes.
 
+You will need to provide an ANNOUNCE_SECRET that is the secret key of the node id
+that provides the data.
+
 ```sh
-iroh-content-discovery announce \
-    --tracker t3od3nblvk6csozc3oe7rjum7oebnnwwfkebolbxf2o66clzdyha \
-    blob:ealcoyhcjxyklzee4manl3b5see3k3nwekf6npw5oollcsflrsduiaicaiafetezhwjouayaycuadbes5ibqaq7qasiyqmqo74ijal7k7ec4pni5htntx4tpoawgvmbhaa3txa4uaa
+iroh-content-discovery-cli announce \
+    --tracker b223f67b76e1853c7f76d9a9f8ce4d8dbb04a48ad9631ce52347043388475767 \
+    blobabgu47eqpaveknv56nty4mfpzlan6i4y3lctwxvwpqbun5uxdh5eiaaaagtcpbvnzwwhxvhk765vpy6ulrdnslajjuicbpxodxwhubcjjvyua
 ```
 
 ## Querying content
@@ -42,9 +45,9 @@ When querying content, you can use tickets, hashes, or hash and format.
 When using tickets, the address part of the ticket will be ignored.
 
 ```sh
-iroh-content-discovery query \
-    --tracker t3od3nblvk6csozc3oe7rjum7oebnnwwfkebolbxf2o66clzdyha \
-    blob:ealcoyhcjxyklzee4manl3b5see3k3nwekf6npw5oollcsflrsduiaicaiafetezhwjouayaycuadbes5ibqaq7qasiyqmqo74ijal7k7ec4pni5htntx4tpoawgvmbhaa3txa4uaa
+iroh-content-discovery-cli query \
+    --tracker b223f67b76e1853c7f76d9a9f8ce4d8dbb04a48ad9631ce52347043388475767 \
+    blobabgu47eqpaveknv56nty4mfpzlan6i4y3lctwxvwpqbun5uxdh5eiaaaagtcpbvnzwwhxvhk765vpy6ulrdnslajjuicbpxodxwhubcjjvyua
 ```
 
 ## Verification
