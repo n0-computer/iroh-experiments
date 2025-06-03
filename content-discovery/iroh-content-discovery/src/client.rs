@@ -59,14 +59,12 @@ pub enum Error {
     #[snafu(display("Failed to deserialize response: {}", source))]
     DeserializeResponse {
         source: postcard::Error,
-
         backtrace: snafu::Backtrace,
     },
 
     #[snafu(display("Failed to get remote node id: {}", source))]
     RemoteNodeId {
         source: anyhow::Error,
-
         backtrace: snafu::Backtrace,
     },
 }
