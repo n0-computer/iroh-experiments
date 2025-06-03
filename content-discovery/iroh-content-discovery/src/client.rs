@@ -50,13 +50,15 @@ pub enum Error {
     RemoteNodeId { source: anyhow::Error },
 }
 
+pub type Result<T> = result::Result<T, Error>;
+
 /// Announce to multiple trackers in parallel.
 pub fn announce_all(
     endpoint: Endpoint,
     trackers: impl IntoIterator<Item = NodeId>,
     signed_announce: SignedAnnounce,
     announce_parallelism: usize,
-) -> impl Stream<Item = (NodeId, result::Result<(), Error>)> {
+) -> impl Stream<Item = (NodeId, Result<()>)> {
     n0_future::stream::iter(trackers)
         .map(move |tracker| {
             let endpoint = endpoint.clone();
@@ -80,7 +82,7 @@ pub async fn announce(
     endpoint: &Endpoint,
     node_id: NodeId,
     signed_announce: SignedAnnounce,
-) -> result::Result<(), Error> {
+) -> Result<()> {
     let connecting = endpoint
         .connect_with_opts(node_id, ALPN, ConnectOptions::default())
         .await
@@ -111,7 +113,7 @@ pub async fn announce_conn(
     connection: &Connection,
     signed_announce: SignedAnnounce,
     proceed: impl Future<Output = bool>,
-) -> result::Result<(), Error> {
+) -> Result<()> {
     let (mut send, recv) = connection.open_bi().await.context(OpenStreamSnafu)?;
     let request = Request::Announce(signed_announce);
     let request = postcard::to_stdvec(&request).context(SerializeRequestSnafu)?;
@@ -140,7 +142,7 @@ pub async fn query(
     endpoint: &Endpoint,
     node_id: NodeId,
     args: Query,
-) -> result::Result<Vec<SignedAnnounce>, Error> {
+) -> Result<Vec<SignedAnnounce>> {
     let connecting = endpoint
         .connect_with_opts(node_id, ALPN, ConnectOptions::default())
         .await
@@ -172,7 +174,7 @@ pub fn query_all(
     trackers: impl IntoIterator<Item = NodeId>,
     args: Query,
     query_parallelism: usize,
-) -> impl Stream<Item = result::Result<SignedAnnounce, Error>> {
+) -> impl Stream<Item = Result<SignedAnnounce>> {
     n0_future::stream::iter(trackers)
         .map(move |tracker| {
             let endpoint = endpoint.clone();
@@ -197,7 +199,7 @@ pub async fn query_conn(
     connection: &Connection,
     args: Query,
     proceed: impl Future<Output = bool>,
-) -> result::Result<QueryResponse, Error> {
+) -> Result<QueryResponse> {
     let request = Request::Query(args);
     let request = postcard::to_stdvec(&request).context(SerializeRequestSnafu)?;
     trace!(
