@@ -7,7 +7,7 @@ use std::{
 };
 
 use clap::Parser;
-use iroh::{Endpoint, NodeId};
+use iroh::Endpoint;
 use iroh_blobs::util::fs::load_secret_key;
 use iroh_content_discovery::protocol::ALPN;
 use iroh_content_tracker::{
@@ -78,16 +78,6 @@ async fn create_endpoint(
     builder.bind().await
 }
 
-/// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
-pub async fn accept_conn(
-    mut conn: iroh::endpoint::Connecting,
-) -> anyhow::Result<(NodeId, String, iroh::endpoint::Connection)> {
-    let alpn = String::from_utf8(conn.alpn().await?)?;
-    let conn = conn.await?;
-    let peer_id = conn.remote_node_id()?;
-    Ok((peer_id, alpn, conn))
-}
-
 /// Write default options to a sample config file.
 fn write_debug() -> anyhow::Result<()> {
     let default_path = tracker_path(CONFIG_DEBUG_FILE)?;
@@ -118,18 +108,18 @@ async fn server(args: Args) -> anyhow::Result<()> {
     let key_path = tracker_path(SERVER_KEY_FILE)?;
     let key = load_secret_key(key_path).await?;
     // let server_config = configure_server(&key)?;
-    let iroh_endpoint =
+    let endpoint =
         create_endpoint(key.clone(), options.ipv4_bind_addr, options.ipv6_bind_addr).await?;
-    let db = Tracker::new(options, iroh_endpoint.clone())?;
+    let db = Tracker::new(options, endpoint.clone())?;
     db.dump().await?;
-    await_relay_region(&iroh_endpoint).await?;
-    let addr = iroh_endpoint.node_addr().await?;
+    await_relay_region(&endpoint).await?;
+    let addr = endpoint.node_addr().await?;
     println!("tracker addr: {}\n", addr.node_id);
     info!("listening on {:?}", addr);
     // let db2 = db.clone();
     let db3 = db.clone();
     // let db4 = db.clone();
-    let iroh_accept_task = tokio::spawn(db.iroh_accept_loop(iroh_endpoint));
+    let accept_task = tokio::spawn(db.accept_loop(endpoint));
     // let quinn_accept_task = tokio::spawn(db2.quinn_accept_loop(quinn_endpoint));
     // let udp_accept_task = tokio::spawn(db4.udp_accept_loop(udp_socket));
     let gc_task = tokio::spawn(db3.gc_loop());
@@ -137,7 +127,7 @@ async fn server(args: Args) -> anyhow::Result<()> {
         _ = tokio::signal::ctrl_c() => {
             info!("shutting down");
         }
-        res = iroh_accept_task => {
+        res = accept_task => {
             tracing::error!("iroh accept task exited");
             res??;
         }

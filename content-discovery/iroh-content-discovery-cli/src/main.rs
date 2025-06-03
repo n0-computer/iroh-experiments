@@ -33,15 +33,12 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
         content,
         timestamp,
     };
+    let endpoint = create_client_endpoint().await?;
     let signed_announce = SignedAnnounce::new(announce, &key)?;
     if !args.tracker.is_empty() {
-        let iroh_endpoint = endpoint::Endpoint::builder().bind().await?;
         for tracker in args.tracker {
             println!("announcing via magicsock to {:?}: {}", tracker, content);
-            let connection = iroh_endpoint
-                .connect(tracker, iroh_content_discovery::protocol::ALPN)
-                .await?;
-            iroh_content_discovery::announce(connection, signed_announce).await?;
+            iroh_content_discovery::announce(&endpoint, tracker, signed_announce).await?;
         }
     }
 
@@ -57,23 +54,17 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
             verified: args.verified,
         },
     };
-    let ep = endpoint::Endpoint::builder()
-        .discovery_dht()
-        .discovery_n0()
-        .bind()
-        .await?;
+    let ep = create_client_endpoint().await?;
     for tracker in args.tracker {
-        let conn = ep
-            .connect(tracker, iroh_content_discovery::protocol::ALPN)
-            .await?;
-        let res = match iroh_content_discovery::query(conn, query).await {
-            Ok(res) => res,
-            Err(e) => {
-                eprintln!("failed to query tracker {}: {}", tracker, e);
-                continue;
-            }
-        };
-        for announce in res.hosts {
+        let announces: Vec<SignedAnnounce> =
+            match iroh_content_discovery::query(&ep, tracker, query).await {
+                Ok(announces) => announces,
+                Err(e) => {
+                    eprintln!("failed to query tracker {}: {}", tracker, e);
+                    continue;
+                }
+            };
+        for announce in announces {
             if announce.verify().is_ok() {
                 println!("{}: {:?}", announce.announce.host, announce.announce.kind);
             } else {
@@ -82,6 +73,19 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Create an endpoint that does look up discovery info via DNS or the DHT, but does not
+/// announce. The client node id is ephemeral and will not be dialed by anyone.
+async fn create_client_endpoint() -> anyhow::Result<endpoint::Endpoint> {
+    let discovery = iroh::discovery::pkarr::dht::DhtDiscovery::builder()
+        .dht(true)
+        .n0_dns_pkarr_relay()
+        .build()?;
+    endpoint::Endpoint::builder()
+        .discovery(Box::new(discovery))
+        .bind()
+        .await
 }
 
 // set the RUST_LOG env var to one of {debug,info,warn} to see logging info

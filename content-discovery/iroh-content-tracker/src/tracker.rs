@@ -5,9 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use bao_tree::ChunkNum;
-use iroh::{Endpoint, NodeId};
+use iroh::{endpoint::Connection, Endpoint, NodeId};
 use iroh_blobs::{
     get::{fsm::EndBlobNext, Stats},
     hashseq::HashSeq,
@@ -882,24 +882,29 @@ impl Tracker {
         rx.await?
     }
 
-    pub async fn iroh_accept_loop(self, endpoint: Endpoint) -> std::io::Result<()> {
+    pub async fn accept_loop(self, endpoint: Endpoint) -> std::io::Result<()> {
         while let Some(incoming) = endpoint.accept().await {
-            info!("got incoming");
+            let socket_addr = incoming.remote_address();
+            trace!("got incoming connection from {socket_addr}");
             let connecting = incoming.accept()?;
-            info!("got connecting");
             let tracker = self.clone();
             tokio::spawn(async move {
-                let Ok((remote_node_id, alpn, conn)) = iroh_accept_conn(connecting).await else {
-                    error!("error accepting connection");
+                let Ok((conn, _)) = connecting.into_0rtt() else {
+                    // this should never happen, but for now we handle it gracefully.
+                    // hopefully the API will be changed to not return a result.
+                    error!("error converting to 0-RTT connection");
                     return;
                 };
-                // if we were supporting multiple protocols, we'd need to check the ALPN here.
-                info!(
-                    "got connection from {} {:?}",
-                    remote_node_id,
-                    std::str::from_utf8(&alpn)
-                );
-                if let Err(cause) = tracker.handle_iroh_connection(conn).await {
+                let Some(alpn) = conn.alpn() else {
+                    error!("no ALPN found on connection");
+                    return;
+                };
+                if alpn != iroh_content_discovery::ALPN {
+                    error!("unexpected ALPN on connection: {:?}", alpn);
+                    return;
+                }
+                trace!("got connection from {socket_addr}");
+                if let Err(cause) = tracker.handle_connection(conn).await {
                     tracing::error!("error handling connection: {}", cause);
                 }
             });
@@ -908,18 +913,17 @@ impl Tracker {
     }
 
     /// Handle a single incoming connection on the tracker ALPN.
-    pub async fn handle_iroh_connection(
-        &self,
-        connection: iroh::endpoint::Connection,
-    ) -> anyhow::Result<()> {
-        debug!("calling accept_bi");
-        let (mut send, mut recv) = connection.accept_bi().await?;
-        debug!("got bi stream");
+    pub async fn handle_connection(&self, conn: Connection) -> anyhow::Result<()> {
+        let (mut send, mut recv) = conn.accept_bi().await?;
+        let Ok(remote_node_id) = conn.remote_node_id() else {
+            bail!("error getting remote node id");
+        };
+        trace!("remote node id: {}", remote_node_id);
         let request = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
         let request = postcard::from_bytes::<Request>(&request)?;
         match request {
             Request::Announce(announce) => {
-                debug!("got announce: {:?}", announce);
+                debug!("handle announce: {:?}", announce);
                 self.handle_announce(announce).await?;
                 send.finish()?;
             }
@@ -933,7 +937,7 @@ impl Tracker {
                 send.finish()?;
             }
         }
-        connection.closed().await;
+        conn.closed().await;
         Ok(())
     }
 
@@ -1197,14 +1201,4 @@ impl Tracker {
         self.0.actor.send(ActorMessage::Dump).await?;
         Ok(())
     }
-}
-
-/// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
-async fn iroh_accept_conn(
-    mut conn: iroh::endpoint::Connecting,
-) -> anyhow::Result<(NodeId, Vec<u8>, iroh::endpoint::Connection)> {
-    let alpn = conn.alpn().await?;
-    let conn = conn.await?;
-    let node_id = conn.remote_node_id()?;
-    Ok((node_id, alpn, conn))
 }
