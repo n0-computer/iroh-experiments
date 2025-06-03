@@ -15,39 +15,60 @@ use crate::protocol::{
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("Failed to connect to tracker: {}", source))]
-    Connect { source: anyhow::Error },
+    Connect {
+        source: anyhow::Error,
+        backtrace: snafu::Backtrace,
+    },
 
     #[snafu(display("Failed connect to tracker using 1-rtt: {}", source))]
     Connect1Rtt {
         source: iroh::endpoint::ConnectionError,
+        backtrace: snafu::Backtrace,
     },
 
     #[snafu(display("Failed to open bidi stream to tracker: {}", source))]
     OpenStream {
         source: iroh::endpoint::ConnectionError,
+        backtrace: snafu::Backtrace,
     },
 
     #[snafu(display("Failed to serialize request: {}", source))]
-    SerializeRequest { source: postcard::Error },
+    SerializeRequest {
+        source: postcard::Error,
+        backtrace: snafu::Backtrace,
+    },
 
     #[snafu(display("Failed to write data: {}", source))]
-    WriteRequest { source: iroh::endpoint::WriteError },
+    WriteRequest {
+        source: iroh::endpoint::WriteError,
+        backtrace: snafu::Backtrace,
+    },
 
     #[snafu(display("Failed to finish: {}", source))]
     FinishWrite {
         source: iroh::endpoint::ClosedStream,
+        backtrace: snafu::Backtrace,
     },
 
     #[snafu(display("Failed to read response: {}", source))]
     ReadResponse {
         source: iroh::endpoint::ReadToEndError,
+        backtrace: snafu::Backtrace,
     },
 
     #[snafu(display("Failed to deserialize response: {}", source))]
-    DeserializeResponse { source: postcard::Error },
+    DeserializeResponse {
+        source: postcard::Error,
+
+        backtrace: snafu::Backtrace,
+    },
 
     #[snafu(display("Failed to get remote node id: {}", source))]
-    RemoteNodeId { source: anyhow::Error },
+    RemoteNodeId {
+        source: anyhow::Error,
+
+        backtrace: snafu::Backtrace,
+    },
 }
 
 pub type Result<T> = result::Result<T, Error>;
