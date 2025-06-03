@@ -1,6 +1,6 @@
 [package]
 name = "iroh-content-discovery-cli"
-version = "0.5.0"
+version = "0.1.0"
 edition = "2021"
 description = "Content discovery for iroh, using a simple tracker protocol"
 license = "MIT OR Apache-2.0"
