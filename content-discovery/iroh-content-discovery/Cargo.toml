@@ -11,18 +11,17 @@ license = "MIT OR Apache-2.0"
 # Required features for the protocol types.
 #
 # The protocol is using postcard, but we don't need a postcard dependency for just the type definitions
-iroh = { workspace = true }
 iroh-base = { workspace = true }
 iroh-blobs = { workspace = true }
-rand = "0.8.5"
 serde = { version = "1", features = ["derive"] }
 derive_more = { version = "1.0.0-beta.1", features = ["debug", "display", "from", "try_into"] }
 serde-big-array = "0.5.1"
 hex = "0.4.3"
+anyhow = { workspace = true, features = ["backtrace"] }
 
 # Optional features for the client functionality
+iroh = { workspace = true, optional = true }
 tracing = { version = "0.1", optional = true }
-anyhow = { workspace = true, features = ["backtrace"], optional = true }
 postcard = { workspace = true, features = ["alloc", "use-std"], optional = true }
 tokio = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
@@ -32,10 +31,10 @@ futures-buffered = { workspace = true, optional = true }
 [features]
 client = [
     "dep:tracing",
-    "dep:anyhow",
     "dep:postcard",
     "dep:tokio",
     "dep:n0-future",
     "dep:futures-buffered",
+    "dep:iroh",
 ]
 default = ["client"]

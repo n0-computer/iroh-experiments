@@ -21,7 +21,6 @@ pub fn announce_all(
     n0_future::stream::iter(trackers)
         .map(move |tracker| {
             let endpoint = endpoint.clone();
-            let signed_announce = signed_announce.clone();
             async move {
                 let res = announce(&endpoint, tracker, signed_announce).await;
                 (tracker, res)
