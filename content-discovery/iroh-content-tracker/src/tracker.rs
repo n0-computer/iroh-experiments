@@ -903,7 +903,6 @@ impl Tracker {
                     error!("unexpected ALPN on connection: {:?}", alpn);
                     return;
                 }
-                trace!("got connection from {socket_addr}");
                 if let Err(cause) = tracker.handle_connection(conn).await {
                     tracing::error!("error handling connection: {}", cause);
                 }
