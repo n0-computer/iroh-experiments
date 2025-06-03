@@ -2,20 +2,16 @@
 //!
 //! run using `cargo run --example server -- --root .`
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{bail, Result};
 use bytes::{Bytes, BytesMut};
 use clap::Parser;
-use h3::error::ErrorLevel;
-use h3::quic::BidiStream;
-use h3::server::RequestStream;
+use h3::{error::ErrorLevel, quic::BidiStream, server::RequestStream};
 use http::{Request, StatusCode};
 use iroh::endpoint::Incoming;
 use iroh_base::ticket::NodeTicket;
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
+use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, error, field, info, info_span, Instrument, Span};
 
 #[derive(Parser, Debug)]
