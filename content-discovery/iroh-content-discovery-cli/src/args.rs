@@ -67,7 +67,7 @@ impl FromStr for ContentArg {
 
 #[derive(Parser, Debug)]
 pub struct AnnounceArgs {
-    /// trackers to announce to via magicsock
+    /// trackers to announce to
     #[clap(long, required = true)]
     pub tracker: Vec<NodeId>,
 

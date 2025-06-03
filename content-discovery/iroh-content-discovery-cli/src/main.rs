@@ -43,7 +43,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
     let signed_announce = SignedAnnounce::new(announce, &key)?;
     if !args.tracker.is_empty() {
         for tracker in args.tracker {
-            println!("announcing via magicsock to {:?}: {}", tracker, content);
+            println!("announcing to {}: {}", tracker, content);
             iroh_content_discovery::announce(&endpoint, tracker, signed_announce).await?;
         }
     }
