@@ -1,15 +1,54 @@
-use std::future::Future;
+use std::{future::Future, result};
 
 use iroh::{
     endpoint::{ConnectOptions, Connection},
     Endpoint, NodeId,
 };
 use n0_future::{BufferedStreamExt, Stream, StreamExt};
+use snafu::prelude::*;
 use tracing::trace;
 
 use crate::protocol::{
     Query, QueryResponse, Request, Response, SignedAnnounce, ALPN, REQUEST_SIZE_LIMIT,
 };
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Failed to connect to tracker: {}", source))]
+    Connect { source: anyhow::Error },
+
+    #[snafu(display("Failed connect to tracker using 1-rtt: {}", source))]
+    Connect1Rtt {
+        source: iroh::endpoint::ConnectionError,
+    },
+
+    #[snafu(display("Failed to open bidi stream to tracker: {}", source))]
+    OpenStream {
+        source: iroh::endpoint::ConnectionError,
+    },
+
+    #[snafu(display("Failed to serialize request: {}", source))]
+    SerializeRequest { source: postcard::Error },
+
+    #[snafu(display("Failed to write data: {}", source))]
+    WriteRequest { source: iroh::endpoint::WriteError },
+
+    #[snafu(display("Failed to finish: {}", source))]
+    FinishWrite {
+        source: iroh::endpoint::ClosedStream,
+    },
+
+    #[snafu(display("Failed to read response: {}", source))]
+    ReadResponse {
+        source: iroh::endpoint::ReadToEndError,
+    },
+
+    #[snafu(display("Failed to deserialize response: {}", source))]
+    DeserializeResponse { source: postcard::Error },
+
+    #[snafu(display("Failed to get remote node id: {}", source))]
+    RemoteNodeId { source: anyhow::Error },
+}
 
 /// Announce to multiple trackers in parallel.
 pub fn announce_all(
@@ -17,7 +56,7 @@ pub fn announce_all(
     trackers: impl IntoIterator<Item = NodeId>,
     signed_announce: SignedAnnounce,
     announce_parallelism: usize,
-) -> impl Stream<Item = (NodeId, anyhow::Result<()>)> {
+) -> impl Stream<Item = (NodeId, result::Result<(), Error>)> {
     n0_future::stream::iter(trackers)
         .map(move |tracker| {
             let endpoint = endpoint.clone();
@@ -41,10 +80,11 @@ pub async fn announce(
     endpoint: &Endpoint,
     node_id: NodeId,
     signed_announce: SignedAnnounce,
-) -> anyhow::Result<()> {
+) -> result::Result<(), Error> {
     let connecting = endpoint
         .connect_with_opts(node_id, ALPN, ConnectOptions::default())
-        .await?;
+        .await
+        .context(ConnectSnafu)?;
     match connecting.into_0rtt() {
         Ok((connection, zero_rtt_accepted)) => {
             trace!("connected to tracker using possibly 0-rtt: {node_id}");
@@ -53,7 +93,7 @@ pub async fn announce(
             Ok(())
         }
         Err(connecting) => {
-            let connection = connecting.await?;
+            let connection = connecting.await.context(Connect1RttSnafu)?;
             trace!("connected to tracker using 1-rtt: {node_id}");
             announce_conn(&connection, signed_announce, async { true }).await?;
             connection.close(0u32.into(), b"");
@@ -71,23 +111,26 @@ pub async fn announce_conn(
     connection: &Connection,
     signed_announce: SignedAnnounce,
     proceed: impl Future<Output = bool>,
-) -> anyhow::Result<()> {
-    let (mut send, recv) = connection.open_bi().await?;
+) -> result::Result<(), Error> {
+    let (mut send, recv) = connection.open_bi().await.context(OpenStreamSnafu)?;
     let request = Request::Announce(signed_announce);
-    let request = postcard::to_stdvec(&request)?;
+    let request = postcard::to_stdvec(&request).context(SerializeRequestSnafu)?;
     trace!("sending announce");
-    send.write_all(&request).await?;
-    send.finish()?;
+    send.write_all(&request).await.context(WriteRequestSnafu)?;
+    send.finish().context(FinishWriteSnafu)?;
     let mut recv = if proceed.await {
         recv
     } else {
-        let (mut send, recv) = connection.open_bi().await?;
+        let (mut send, recv) = connection.open_bi().await.context(OpenStreamSnafu)?;
         trace!("re-sending announce using 1-rtt");
-        send.write_all(&request).await?;
-        send.finish()?;
+        send.write_all(&request).await.context(WriteRequestSnafu)?;
+        send.finish().context(FinishWriteSnafu)?;
         recv
     };
-    let _response = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
+    let _response = recv
+        .read_to_end(REQUEST_SIZE_LIMIT)
+        .await
+        .context(ReadResponseSnafu)?;
     trace!("got response");
     Ok(())
 }
@@ -97,10 +140,11 @@ pub async fn query(
     endpoint: &Endpoint,
     node_id: NodeId,
     args: Query,
-) -> anyhow::Result<Vec<SignedAnnounce>> {
+) -> result::Result<Vec<SignedAnnounce>, Error> {
     let connecting = endpoint
         .connect_with_opts(node_id, ALPN, ConnectOptions::default())
-        .await?;
+        .await
+        .context(ConnectSnafu)?;
     let result = match connecting.into_0rtt() {
         Ok((connection, zero_rtt_accepted)) => {
             trace!("connected to tracker using possibly 0-rtt: {node_id}");
@@ -109,7 +153,7 @@ pub async fn query(
             res
         }
         Err(connecting) => {
-            let connection = connecting.await?;
+            let connection = connecting.await.context(Connect1RttSnafu)?;
             trace!("connected to tracker using 1-rtt: {node_id}");
             let res = query_conn(&connection, args, async { true }).await?;
             connection.close(0u32.into(), b"");
@@ -128,13 +172,13 @@ pub fn query_all(
     trackers: impl IntoIterator<Item = NodeId>,
     args: Query,
     query_parallelism: usize,
-) -> impl Stream<Item = anyhow::Result<SignedAnnounce>> {
+) -> impl Stream<Item = result::Result<SignedAnnounce, Error>> {
     n0_future::stream::iter(trackers)
         .map(move |tracker| {
             let endpoint = endpoint.clone();
             async move {
                 let hosts = match query(&endpoint, tracker, args).await {
-                    Ok(hosts) => hosts.into_iter().map(anyhow::Ok).collect(),
+                    Ok(hosts) => hosts.into_iter().map(Ok).collect(),
                     Err(cause) => vec![Err(cause)],
                 };
                 n0_future::stream::iter(hosts)
@@ -153,26 +197,32 @@ pub async fn query_conn(
     connection: &Connection,
     args: Query,
     proceed: impl Future<Output = bool>,
-) -> anyhow::Result<QueryResponse> {
+) -> result::Result<QueryResponse, Error> {
     let request = Request::Query(args);
-    let request = postcard::to_stdvec(&request)?;
-    trace!("connected to {:?}", connection.remote_node_id()?);
+    let request = postcard::to_stdvec(&request).context(SerializeRequestSnafu)?;
+    trace!(
+        "connected to {:?}",
+        connection.remote_node_id().context(RemoteNodeIdSnafu)?
+    );
     trace!("opened bi stream");
-    let (mut send, recv) = connection.open_bi().await?;
+    let (mut send, recv) = connection.open_bi().await.context(OpenStreamSnafu)?;
     trace!("sending query");
-    send.write_all(&request).await?;
-    send.finish()?;
+    send.write_all(&request).await.context(WriteRequestSnafu)?;
+    send.finish().context(FinishWriteSnafu)?;
     let mut recv = if proceed.await {
         recv
     } else {
-        let (mut send, recv) = connection.open_bi().await?;
+        let (mut send, recv) = connection.open_bi().await.context(OpenStreamSnafu)?;
         trace!("sending query again using 1-rtt");
-        send.write_all(&request).await?;
-        send.finish()?;
+        send.write_all(&request).await.context(WriteRequestSnafu)?;
+        send.finish().context(FinishWriteSnafu)?;
         recv
     };
-    let response = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
-    let response = postcard::from_bytes::<Response>(&response)?;
+    let response = recv
+        .read_to_end(REQUEST_SIZE_LIMIT)
+        .await
+        .context(ReadResponseSnafu)?;
+    let response = postcard::from_bytes::<Response>(&response).context(DeserializeResponseSnafu)?;
     Ok(match response {
         Response::QueryResponse(response) => response,
     })
