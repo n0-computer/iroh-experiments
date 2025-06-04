@@ -5,21 +5,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use bao_tree::ChunkNum;
-use iroh::{Endpoint, NodeId};
+use iroh::{endpoint::Connection, Endpoint, NodeId};
 use iroh_blobs::{
     get::{fsm::EndBlobNext, Stats},
     hashseq::HashSeq,
     protocol::GetRequest,
     BlobFormat, Hash, HashAndFormat,
 };
-use iroh_mainline_content_discovery::{
-    protocol::{
-        AbsoluteTime, Announce, AnnounceKind, Query, QueryResponse, Request, Response,
-        SignedAnnounce, REQUEST_SIZE_LIMIT,
-    },
-    tls_utils, to_infohash,
+use iroh_content_discovery::protocol::{
+    AbsoluteTime, Announce, AnnounceKind, Query, QueryResponse, Request, Response, SignedAnnounce,
+    REQUEST_SIZE_LIMIT,
 };
 use rand::Rng;
 use redb::{ReadableTable, RedbValue};
@@ -63,8 +60,6 @@ struct Inner {
     announce_tasks: TaskMap<HashAndFormat>,
     /// Tasks that probe nodes. There is one task per node, and it probes all content items for that peer.
     probe_tasks: TaskMap<NodeId>,
-    /// A handle to the DHT client, which is used to announce to the DHT.
-    dht: Arc<mainline::async_dht::AsyncDht>,
     /// The iroh endpoint, which is used to accept incoming connections and to probe peers.
     endpoint: Endpoint,
     /// To spawn non-send futures.
@@ -177,6 +172,7 @@ struct GetDistinctContentResponse {
 
 #[derive(derive_more::Debug)]
 struct AnnounceResponse {
+    #[allow(dead_code)]
     new_content: bool,
     new_host_for_content: bool,
 }
@@ -358,9 +354,9 @@ impl Actor {
         tables: &mut Tables,
         signed_announce: SignedAnnounce,
     ) -> anyhow::Result<AnnounceResponse> {
-        tracing::info!("got announce");
+        info!("got announce");
         signed_announce.verify()?;
-        tracing::info!("verified announce: {:?}", signed_announce);
+        info!("verified announce: {:?}", signed_announce);
         let content = signed_announce.content;
         let (path, value1) = split_signed_announce(signed_announce);
         // true if this is entirely new content, false if it is just a new host for existing content
@@ -407,6 +403,7 @@ impl Actor {
             let (path, value) = entry?;
             let path = path.value();
             let value = value.value();
+            trace!("iterating announce entry {:?} -> {:?}", path, value);
             if kind == AnnounceKind::Complete && path.announce_kind() == AnnounceKind::Partial {
                 // we only want complete announces
                 continue;
@@ -414,7 +411,7 @@ impl Actor {
             let recently_announced = now - value.timestamp <= options.announce_timeout;
             if !recently_announced {
                 // announce is too old
-                tracing::error!("announce is too old");
+                error!("announce is too old");
                 continue;
             }
             if query.flags.verified {
@@ -424,13 +421,14 @@ impl Actor {
                     .unwrap_or_default();
                 if !recently_probed {
                     // query asks for verificated hosts, but the last successful probe is too old
-                    tracing::error!("verification of complete data is too old");
+                    error!("verification of complete data is too old");
                     continue;
                 }
             }
             let signed_announce = join_signed_announce(path, value);
             announces.push(signed_announce);
         }
+        trace!("{:?} announces found", announces.len());
         Ok(QueryResponse { hosts: announces })
     }
 
@@ -451,6 +449,7 @@ impl Actor {
     }
 
     fn handle_dump(&self, tables: &impl ReadableTables) -> anyhow::Result<()> {
+        println!("Dumping announces and probes:");
         for entry in tables.announces().iter()? {
             let (path, value) = entry?;
             let path = path.value();
@@ -545,7 +544,7 @@ fn join_signed_announce(path: AnnouncePath, value: AnnounceValue) -> SignedAnnou
 
 #[derive(derive_more::Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct AnnouncePath {
-    #[debug("{}", self.content().hash)]
+    #[debug("{}", self.content().hash.to_hex())]
     hash: [u8; 32],
     #[debug("{:?}", self.content().format)]
     format: u8,
@@ -609,7 +608,7 @@ impl AnnouncePath {
     fn format_short(&self) -> String {
         format!(
             "({}, {:?}, {:?}, {})",
-            self.content().hash,
+            self.content().hash.to_hex(),
             self.content().format,
             self.announce_kind(),
             self.node()
@@ -790,12 +789,11 @@ impl Tracker {
     ///
     /// You will have to drive the tracker server yourself, using `handle_connection` and `probe_loop`.
     pub fn new(options: Options, endpoint: Endpoint) -> anyhow::Result<Self> {
-        tracing::info!(
+        info!(
             "creating tracker using database at {}",
             options.announce_data_path.display()
         );
         let db = redb::Database::create(&options.announce_data_path)?;
-        let dht = Arc::new(mainline::Dht::client()?.as_async());
         let tpc = tokio_util::task::LocalPoolHandle::new(1);
         let (tx, rx) = mpsc::channel(1024);
         let actor = Actor {
@@ -825,13 +823,9 @@ impl Tracker {
             probe_tasks: Default::default(),
             endpoint,
             local_pool: tpc,
-            dht,
             handle: Some(handle),
         }));
         // spawn independent announce tasks for each content item
-        for content in dc.content {
-            res.setup_dht_announce_task(content);
-        }
         for node in dc.nodes {
             res.setup_probe_task(node);
         }
@@ -864,29 +858,6 @@ impl Tracker {
         self.0.probe_tasks.publish(node, task);
     }
 
-    fn setup_dht_announce_task(&self, content: HashAndFormat) {
-        let dht = self.0.dht.clone();
-        let dht_announce_interval = self.0.options.dht_announce_interval;
-        let udp_port = self.0.options.udp_port;
-        // announce task only captures this, an Arc, and the content.
-        let task = tokio::spawn(async move {
-            let info_hash = to_infohash(content);
-            loop {
-                let res = dht.announce_peer(info_hash, Some(udp_port)).await;
-                match res {
-                    Ok(sqm) => {
-                        tracing::trace!("announced: {:?}", sqm);
-                    }
-                    Err(cause) => {
-                        tracing::warn!("error announcing: {}", cause);
-                    }
-                }
-                tokio::time::sleep(dht_announce_interval).await;
-            }
-        });
-        self.0.announce_tasks.publish(content, task);
-    }
-
     pub async fn gc_loop(self) -> anyhow::Result<()> {
         loop {
             tokio::time::sleep(self.0.options.gc_interval).await;
@@ -911,24 +882,28 @@ impl Tracker {
         rx.await?
     }
 
-    pub async fn iroh_accept_loop(self, endpoint: Endpoint) -> std::io::Result<()> {
+    pub async fn accept_loop(self, endpoint: Endpoint) -> std::io::Result<()> {
         while let Some(incoming) = endpoint.accept().await {
-            info!("got incoming");
+            let socket_addr = incoming.remote_address();
+            trace!("got incoming connection from {socket_addr}");
             let connecting = incoming.accept()?;
-            info!("got connecting");
             let tracker = self.clone();
             tokio::spawn(async move {
-                let Ok((remote_node_id, alpn, conn)) = iroh_accept_conn(connecting).await else {
-                    error!("error accepting connection");
+                let Ok((conn, _)) = connecting.into_0rtt() else {
+                    // this should never happen, but for now we handle it gracefully.
+                    // hopefully the API will be changed to not return a result.
+                    error!("error converting to 0-RTT connection");
                     return;
                 };
-                // if we were supporting multiple protocols, we'd need to check the ALPN here.
-                info!(
-                    "got connection from {} {:?}",
-                    remote_node_id,
-                    std::str::from_utf8(&alpn)
-                );
-                if let Err(cause) = tracker.handle_iroh_connection(conn).await {
+                let Some(alpn) = conn.alpn() else {
+                    error!("no ALPN found on connection");
+                    return;
+                };
+                if alpn != iroh_content_discovery::ALPN {
+                    error!("unexpected ALPN on connection: {:?}", alpn);
+                    return;
+                }
+                if let Err(cause) = tracker.handle_connection(conn).await {
                     tracing::error!("error handling connection: {}", cause);
                 }
             });
@@ -936,129 +911,32 @@ impl Tracker {
         Ok(())
     }
 
-    pub async fn quinn_accept_loop(self, endpoint: quinn::Endpoint) -> std::io::Result<()> {
-        let local_addr = endpoint.local_addr()?;
-        println!("quinn listening on {local_addr:?}");
-        while let Some(incoming) = endpoint.accept().await {
-            info!("got incoming");
-            let connecting = incoming.accept()?;
-            info!("got connecting");
-            let tracker = self.clone();
-            tokio::spawn(async move {
-                let Ok((remote_node_id, alpn, conn)) = accept_conn(connecting).await else {
-                    tracing::error!("error accepting connection");
-                    return;
-                };
-                // if we were supporting multiple protocols, we'd need to check the ALPN here.
-                info!("got connection from {} {}", remote_node_id, alpn);
-                if let Err(cause) = tracker.handle_quinn_connection(conn).await {
-                    error!("error handling connection: {}", cause);
-                }
-            });
-        }
-        Ok(())
-    }
-
-    pub async fn udp_accept_loop(self, socket: tokio::net::UdpSocket) -> std::io::Result<()> {
-        println!("udp listening on {}", socket.local_addr()?);
-        let mut buf = [0; 1200];
-        loop {
-            let (len, addr) = socket.recv_from(&mut buf).await?;
-            let data = &buf[..len];
-            let res = self.handle_udp_packet(data, &socket, addr).await;
-            if let Err(cause) = res {
-                error!("error handling UDP packet: {}", cause);
-            }
-        }
-    }
-
-    pub async fn handle_udp_packet(
-        &self,
-        data: &[u8],
-        socket: &tokio::net::UdpSocket,
-        addr: std::net::SocketAddr,
-    ) -> anyhow::Result<()> {
-        trace!("got UDP packet from {}, {} bytes", addr, data.len());
-        let request = postcard::from_bytes::<Request>(data)?;
+    /// Handle a single incoming connection on the tracker ALPN.
+    pub async fn handle_connection(&self, conn: Connection) -> anyhow::Result<()> {
+        let (mut send, mut recv) = conn.accept_bi().await?;
+        let Ok(remote_node_id) = conn.remote_node_id() else {
+            bail!("error getting remote node id");
+        };
+        trace!("remote node id: {}", remote_node_id);
+        let request = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
+        let request = postcard::from_bytes::<Request>(&request)?;
         match request {
             Request::Announce(announce) => {
-                debug!("got announce: {:?}", announce);
+                debug!("handle announce: {:?}", announce);
                 self.handle_announce(announce).await?;
+                send.finish()?;
             }
 
             Request::Query(query) => {
-                let mut buf = [0u8; 1200];
                 debug!("handle query: {:?}", query);
                 let response = self.handle_query(query).await?;
                 let response = Response::QueryResponse(response);
-                let response_bytes = postcard::to_slice(&response, &mut buf)?;
-                trace!(
-                    "sending response, {:?} {} bytes",
-                    response,
-                    response_bytes.len()
-                );
-                socket.send_to(response_bytes, addr).await?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Handle a single incoming connection on the tracker ALPN.
-    pub async fn handle_quinn_connection(
-        &self,
-        connection: quinn::Connection,
-    ) -> anyhow::Result<()> {
-        tracing::debug!("calling accept_bi");
-        let (mut send, mut recv) = connection.accept_bi().await?;
-        tracing::debug!("got bi stream");
-        let request = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
-        let request = postcard::from_bytes::<Request>(&request)?;
-        match request {
-            Request::Announce(announce) => {
-                tracing::debug!("got announce: {:?}", announce);
-                self.handle_announce(announce).await?;
-                send.finish()?;
-            }
-
-            Request::Query(query) => {
-                tracing::debug!("handle query: {:?}", query);
-                let response = self.handle_query(query).await?;
-                let response = Response::QueryResponse(response);
                 let response = postcard::to_stdvec(&response)?;
                 send.write_all(&response).await?;
                 send.finish()?;
             }
         }
-        Ok(())
-    }
-
-    /// Handle a single incoming connection on the tracker ALPN.
-    pub async fn handle_iroh_connection(
-        &self,
-        connection: iroh::endpoint::Connection,
-    ) -> anyhow::Result<()> {
-        tracing::debug!("calling accept_bi");
-        let (mut send, mut recv) = connection.accept_bi().await?;
-        tracing::debug!("got bi stream");
-        let request = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
-        let request = postcard::from_bytes::<Request>(&request)?;
-        match request {
-            Request::Announce(announce) => {
-                tracing::debug!("got announce: {:?}", announce);
-                self.handle_announce(announce).await?;
-                send.finish()?;
-            }
-
-            Request::Query(query) => {
-                tracing::debug!("handle query: {:?}", query);
-                let response = self.handle_query(query).await?;
-                let response = Response::QueryResponse(response);
-                let response = postcard::to_stdvec(&response)?;
-                send.write_all(&response).await?;
-                send.finish()?;
-            }
-        }
-        connection.closed().await;
+        conn.closed().await;
         Ok(())
     }
 
@@ -1214,9 +1092,9 @@ impl Tracker {
     }
 
     async fn handle_announce(&self, announce: SignedAnnounce) -> anyhow::Result<()> {
-        tracing::info!("got announce");
+        debug!("got announce");
         announce.verify()?;
-        tracing::info!("verified announce: {:?}", announce);
+        debug!("verified announce: {:?}", announce);
 
         let (tx, rx) = oneshot::channel();
         self.0
@@ -1224,13 +1102,9 @@ impl Tracker {
             .send(ActorMessage::Announce { announce, tx })
             .await?;
         let AnnounceResponse {
-            new_content,
             new_host_for_content,
+            ..
         } = rx.await??;
-        if new_content {
-            // if this is a new content, start announcing it to the DHT
-            self.setup_dht_announce_task(announce.content);
-        }
         if new_host_for_content {
             // if this is a new host for this content, start probing it
             self.setup_probe_task(announce.host);
@@ -1291,7 +1165,7 @@ impl Tracker {
         let connection = match res {
             Ok(connection) => connection,
             Err(cause) => {
-                error!("error dialing host {}: {}", host, cause);
+                debug!("error dialing host {}: {}", host, cause);
                 return Err(cause);
             }
         };
@@ -1326,56 +1200,4 @@ impl Tracker {
         self.0.actor.send(ActorMessage::Dump).await?;
         Ok(())
     }
-}
-
-/// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
-async fn accept_conn(
-    mut conn: quinn::Connecting,
-) -> anyhow::Result<(NodeId, String, quinn::Connection)> {
-    let alpn = get_alpn(&mut conn).await?;
-    let conn = conn.await?;
-    let node_id = get_remote_node_id(&conn)?;
-    Ok((node_id, alpn, conn))
-}
-
-/// Extract the ALPN protocol from the peer's TLS certificate.
-pub async fn get_alpn(connecting: &mut quinn::Connecting) -> anyhow::Result<String> {
-    let data = connecting.handshake_data().await?;
-    match data.downcast::<quinn::crypto::rustls::HandshakeData>() {
-        Ok(data) => match data.protocol {
-            Some(protocol) => std::string::String::from_utf8(protocol).map_err(Into::into),
-            None => anyhow::bail!("no ALPN protocol available"),
-        },
-        Err(_) => anyhow::bail!("unknown handshake type"),
-    }
-}
-
-pub fn get_remote_node_id(connection: &quinn::Connection) -> anyhow::Result<iroh::NodeId> {
-    let data = connection.peer_identity();
-    match data {
-        None => anyhow::bail!("no peer certificate found"),
-        Some(data) => match data.downcast::<Vec<rustls_pki_types::CertificateDer>>() {
-            Ok(certs) => {
-                if certs.len() != 1 {
-                    anyhow::bail!(
-                        "expected a single peer certificate, but {} found",
-                        certs.len()
-                    );
-                }
-                let cert = tls_utils::certificate::parse(&certs[0])?;
-                Ok(cert.peer_id())
-            }
-            Err(_) => anyhow::bail!("invalid peer certificate"),
-        },
-    }
-}
-
-/// Accept an incoming connection and extract the client-provided [`NodeId`] and ALPN protocol.
-async fn iroh_accept_conn(
-    mut conn: iroh::endpoint::Connecting,
-) -> anyhow::Result<(NodeId, Vec<u8>, iroh::endpoint::Connection)> {
-    let alpn = conn.alpn().await?;
-    let conn = conn.await?;
-    let node_id = conn.remote_node_id()?;
-    Ok((node_id, alpn, conn))
 }

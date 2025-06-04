@@ -1,0 +1,42 @@
+[package]
+name = "iroh-content-discovery"
+version = "0.1.0"
+edition = "2021"
+description = "Content discovery for iroh, using a simple tracker protocol"
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# Required features for the protocol types.
+#
+# The protocol is using postcard, but we don't need a postcard dependency for just the type definitions
+iroh-base = { workspace = true }
+iroh-blobs = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+derive_more = { version = "1.0.0-beta.1", features = ["debug", "display", "from", "try_into"] }
+serde-big-array = "0.5.1"
+hex = "0.4.3"
+anyhow = { workspace = true, features = ["backtrace"] }
+
+# Optional features for the client functionality
+iroh = { workspace = true, optional = true }
+tracing = { version = "0.1", optional = true }
+postcard = { workspace = true, features = ["alloc", "use-std"], optional = true }
+tokio = { workspace = true, optional = true }
+tokio-stream = { workspace = true }
+n0-future = { workspace = true, optional = true }
+futures-buffered = { workspace = true, optional = true }
+snafu = "0.8.6"
+ed25519-dalek = "2.1.1"
+
+[features]
+client = [
+    "dep:tracing",
+    "dep:postcard",
+    "dep:tokio",
+    "dep:n0-future",
+    "dep:futures-buffered",
+    "dep:iroh",
+]
+default = ["client"]

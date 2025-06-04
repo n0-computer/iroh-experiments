@@ -3,13 +3,12 @@
 use anyhow::Result;
 use axum::Router;
 use bytes::{Buf, Bytes};
-use http::{Request, Response, Version};
-use iroh::Endpoint;
-use tracing::{debug, error, info_span, trace, warn, Instrument};
-
 use h3::{error::ErrorLevel, quic::BidiStream, server::RequestStream};
+use http::{Request, Response, Version};
 use http_body_util::BodyExt;
+use iroh::Endpoint;
 use tower::Service;
+use tracing::{debug, error, info_span, trace, warn, Instrument};
 
 static ALPN: &[u8] = b"iroh+h3";
 

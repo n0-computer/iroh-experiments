@@ -3,22 +3,25 @@
 //! This module implements QUIC traits with Quinn.
 #![deny(missing_docs)]
 
-use std::convert::TryInto;
-use std::fmt::{self, Display};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{self, Poll};
+use std::{
+    convert::TryInto,
+    fmt::{self, Display},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    task::{self, Poll},
+};
 
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, stream, Stream, StreamExt};
-use h3::ext::Datagram;
-use h3::quic::{self, Error, StreamId, WriteBuf};
+use h3::{
+    ext::Datagram,
+    quic::{self, Error, StreamId, WriteBuf},
+};
 use iroh::endpoint::{self, ApplicationClose, ClosedStream, ReadDatagram};
+pub use iroh::endpoint::{AcceptBi, AcceptUni, Endpoint, OpenBi, OpenUni, VarInt, WriteError};
 use tokio_util::sync::ReusableBoxFuture;
 use tracing::instrument;
-
-pub use iroh::endpoint::{AcceptBi, AcceptUni, Endpoint, OpenBi, OpenUni, VarInt, WriteError};
 
 #[cfg(feature = "axum")]
 pub mod axum;
@@ -691,9 +694,7 @@ impl From<SendStreamError> for std::io::Error {
     fn from(value: SendStreamError) -> Self {
         match value {
             SendStreamError::Write(err) => err.into(),
-            SendStreamError::NotReady => {
-                std::io::Error::new(std::io::ErrorKind::Other, "send stream is not ready")
-            }
+            SendStreamError::NotReady => std::io::Error::other("send stream is not ready"),
             SendStreamError::StreamClosed(err) => err.into(),
         }
     }

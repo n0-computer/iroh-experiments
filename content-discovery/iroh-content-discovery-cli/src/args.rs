@@ -1,9 +1,5 @@
 //! Command line arguments.
-use std::{
-    fmt::Display,
-    net::{SocketAddr, SocketAddrV4},
-    str::FromStr,
-};
+use std::{fmt::Display, str::FromStr};
 
 use clap::{Parser, Subcommand};
 use iroh::NodeId;
@@ -19,7 +15,6 @@ pub struct Args {
 pub enum Commands {
     Announce(AnnounceArgs),
     Query(QueryArgs),
-    QueryDht(QueryDhtArgs),
 }
 
 /// Various ways to specify content.
@@ -72,17 +67,9 @@ impl FromStr for ContentArg {
 
 #[derive(Parser, Debug)]
 pub struct AnnounceArgs {
-    /// trackers to announce to via udp
-    #[clap(long)]
-    pub udp_tracker: Vec<SocketAddr>,
-
-    /// trackers to announce to via quic
-    #[clap(long)]
-    pub quic_tracker: Vec<SocketAddr>,
-
-    /// trackers to announce to via magicsock
-    #[clap(long)]
-    pub magicsock_tracker: Vec<NodeId>,
+    /// trackers to announce to
+    #[clap(long, required = true)]
+    pub tracker: Vec<NodeId>,
 
     /// The content to announce.
     ///
@@ -94,25 +81,13 @@ pub struct AnnounceArgs {
     /// Announce that the peer has only partial data.
     #[clap(long)]
     pub partial: bool,
-
-    /// the port to use for announcing via udp
-    #[clap(long)]
-    pub udp_port: Option<u16>,
-
-    /// the ipv4 to use for announcing via iroh
-    #[clap(long)]
-    pub iroh_ipv4_addr: Option<SocketAddrV4>,
-
-    /// the port to use for announcing via quic
-    #[clap(long)]
-    pub quic_port: Option<u16>,
 }
 
 #[derive(Parser, Debug)]
 pub struct QueryArgs {
     /// the tracker to query
-    #[clap(long)]
-    pub tracker: Vec<SocketAddr>,
+    #[clap(long, required = true)]
+    pub tracker: Vec<NodeId>,
 
     /// The content to find hosts for.
     pub content: ContentArg,
@@ -124,30 +99,4 @@ pub struct QueryArgs {
     /// Ask for hosts that were recently checked and found to have some data
     #[clap(long)]
     pub verified: bool,
-
-    /// the port to use for querying
-    #[clap(long)]
-    pub udp_port: Option<u16>,
-}
-
-#[derive(Parser, Debug)]
-pub struct QueryDhtArgs {
-    /// The content to find hosts for.
-    pub content: ContentArg,
-
-    /// Ask for hosts that were announced as having just partial data
-    #[clap(long)]
-    pub partial: bool,
-
-    /// Ask for hosts that were recently checked and found to have some data
-    #[clap(long)]
-    pub verified: bool,
-
-    /// Parallelism for querying the dht
-    #[clap(long)]
-    pub query_parallelism: Option<usize>,
-
-    /// the port to use for querying
-    #[clap(long)]
-    pub udp_port: Option<u16>,
 }

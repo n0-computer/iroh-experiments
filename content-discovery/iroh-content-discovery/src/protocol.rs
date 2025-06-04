@@ -1,6 +1,7 @@
 //! The protocol for communicating with the tracker.
 use std::{
     ops::{Deref, Sub},
+    result,
     time::{Duration, SystemTime},
 };
 
@@ -8,6 +9,7 @@ use iroh::NodeId;
 use iroh_blobs::HashAndFormat;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
+use snafu::prelude::*;
 
 /// The ALPN string for this protocol
 pub const ALPN: &[u8] = b"n0/tracker/1";
@@ -33,6 +35,7 @@ impl AnnounceKind {
     }
 }
 
+/// An absolute time in microseconds since the UNIX epoch.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AbsoluteTime(u64);
 
@@ -59,16 +62,16 @@ impl Sub for AbsoluteTime {
 }
 
 impl TryFrom<SystemTime> for AbsoluteTime {
-    type Error = anyhow::Error;
+    type Error = &'static str;
 
     fn try_from(value: SystemTime) -> Result<Self, Self::Error> {
         Ok(Self(
             value
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("Time went backwards")
+                .map_err(|_| "SystemTime before UNIX EPOCH")?
                 .as_micros()
                 .try_into()
-                .expect("time too large"),
+                .map_err(|_| "SystemTime too large")?,
         ))
     }
 }
@@ -116,9 +119,22 @@ impl Deref for SignedAnnounce {
     }
 }
 
+#[derive(Debug, Snafu)]
+pub enum VerifyError {
+    SignatureError {
+        source: ed25519_dalek::SignatureError,
+    },
+    SerializationError {
+        source: postcard::Error,
+    },
+}
+
 impl SignedAnnounce {
     /// Create a new signed announce.
-    pub fn new(announce: Announce, secret_key: &iroh::SecretKey) -> anyhow::Result<Self> {
+    pub fn new(
+        announce: Announce,
+        secret_key: &iroh::SecretKey,
+    ) -> result::Result<Self, postcard::Error> {
         let announce_bytes = postcard::to_allocvec(&announce)?;
         let signature = secret_key.sign(&announce_bytes).to_bytes();
         Ok(Self {
@@ -128,10 +144,13 @@ impl SignedAnnounce {
     }
 
     /// Verify the announce, and return the announce if it's valid.
-    pub fn verify(&self) -> anyhow::Result<()> {
-        let announce_bytes = postcard::to_allocvec(&self.announce)?;
+    pub fn verify(&self) -> result::Result<(), VerifyError> {
+        let announce_bytes = postcard::to_allocvec(&self.announce).context(SerializationSnafu)?;
         let signature = iroh_base::Signature::from_bytes(&self.signature);
-        self.announce.host.verify(&announce_bytes, &signature)?;
+        self.announce
+            .host
+            .verify(&announce_bytes, &signature)
+            .context(SignatureSnafu)?;
         Ok(())
     }
 }

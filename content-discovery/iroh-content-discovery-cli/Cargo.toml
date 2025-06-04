@@ -1,8 +1,8 @@
 [package]
-name = "iroh-mainline-content-discovery-cli"
-version = "0.5.0"
+name = "iroh-content-discovery-cli"
+version = "0.1.0"
 edition = "2021"
-description = "Content discovery for iroh, using the bittorrent mainline DHT"
+description = "Content discovery for iroh, using a simple tracker protocol"
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -10,8 +10,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 iroh = { workspace = true }
 iroh-blobs = { workspace = true }
-iroh-mainline-content-discovery = { path = "../iroh-mainline-content-discovery" }
-mainline = { workspace = true }
+iroh-content-discovery = { path = "../iroh-content-discovery" }
 anyhow = { workspace = true, features = ["backtrace"] }
 futures = { version = "0.3.25" }
 clap = { version = "4", features = ["derive"] }

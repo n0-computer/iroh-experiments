@@ -1,5 +1,4 @@
-use std::future;
-use std::str::FromStr;
+use std::{future, str::FromStr};
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
