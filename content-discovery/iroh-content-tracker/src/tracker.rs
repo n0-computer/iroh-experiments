@@ -421,7 +421,7 @@ impl Actor {
                     .unwrap_or_default();
                 if !recently_probed {
                     // query asks for verificated hosts, but the last successful probe is too old
-                    error!("verification of complete data is too old");
+                    error!("probe of complete data is too old");
                     continue;
                 }
             }
