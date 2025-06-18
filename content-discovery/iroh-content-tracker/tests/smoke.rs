@@ -1,9 +1,10 @@
-use std::vec;
+use std::{time::Duration, vec};
 
-use iroh::Endpoint;
+use iroh::{protocol::RouterBuilder, Endpoint};
+use iroh_blobs::net_protocol::Blobs;
 use iroh_content_discovery::{
     announce,
-    protocol::{Announce, Query, QueryFlags, SignedAnnounce},
+    protocol::{AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce},
     query,
 };
 use iroh_content_tracker::tracker::Tracker;
@@ -24,8 +25,8 @@ async fn smoke_test() -> anyhow::Result<()> {
     let tracker = Tracker::new(options, tracker_ep.clone())?;
     let accept_task = tokio::spawn(tracker.clone().accept_loop(tracker_ep.clone()));
     let tracker_id = tracker_ep.node_id();
-    let blobs = iroh_blobs::net_protocol::Blobs::memory().build(&provider_ep);
-    let provider_router = iroh::protocol::RouterBuilder::new(provider_ep.clone())
+    let blobs = Blobs::memory().build(&provider_ep);
+    let provider_router = RouterBuilder::new(provider_ep.clone())
         .accept(iroh_blobs::ALPN, blobs.clone())
         .spawn();
     let hash = blobs
@@ -34,7 +35,7 @@ async fn smoke_test() -> anyhow::Result<()> {
         .await?
         .hash;
     println!("added content with hash: {}", hash);
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await; // wait for the tracker to be ready
+    tokio::time::sleep(Duration::from_secs(1)).await; // wait for the tracker to be ready
     println!(
         "querying tracker {} for content with hash: {}",
         tracker_id, hash
@@ -55,9 +56,9 @@ async fn smoke_test() -> anyhow::Result<()> {
     let signed_announce = SignedAnnounce::new(
         Announce {
             content: hash.into(),
-            kind: iroh_content_discovery::protocol::AnnounceKind::Complete,
+            kind: AnnounceKind::Complete,
             host: provider_ep.node_id(),
-            timestamp: iroh_content_discovery::protocol::AbsoluteTime::now(),
+            timestamp: AbsoluteTime::now(),
         },
         provider_ep.secret_key(),
     )?;
@@ -70,7 +71,7 @@ async fn smoke_test() -> anyhow::Result<()> {
         "querying tracker {} for content with hash: {}",
         tracker_id, hash
     );
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await; // give the tracker some time to do the probe
+    tokio::time::sleep(Duration::from_secs(1)).await; // give the tracker some time to do the probe
     let res = query(&client_ep, tracker_id, q).await?;
     println!(
         "query successful, content found on tracker {} {:?}",
