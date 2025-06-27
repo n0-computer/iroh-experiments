@@ -16,7 +16,7 @@ use crate::protocol::{
 pub enum Error {
     #[snafu(display("Failed to connect to tracker: {}", source))]
     Connect {
-        source: anyhow::Error,
+        source: iroh::endpoint::ConnectWithOptsError,
         backtrace: snafu::Backtrace,
     },
 
@@ -64,7 +64,7 @@ pub enum Error {
 
     #[snafu(display("Failed to get remote node id: {}", source))]
     RemoteNodeId {
-        source: anyhow::Error,
+        source: iroh::endpoint::RemoteNodeIdError,
         backtrace: snafu::Backtrace,
     },
 }

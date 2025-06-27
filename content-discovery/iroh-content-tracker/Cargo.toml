@@ -37,6 +37,7 @@ iroh-content-discovery = { path = "../iroh-content-discovery", features = ["clie
 
 clap = { version = "4", features = ["derive"], optional = true }
 serde-big-array = "0.5.1"
+ssh-key = { version = "0.6", features = ["ed25519"] }
 
 [features]
 cli = ["clap"]

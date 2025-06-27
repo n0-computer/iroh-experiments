@@ -5,11 +5,11 @@ use bao_tree::{ChunkNum, ChunkRanges};
 use bytes::Bytes;
 use iroh_blobs::{
     get::{
-        fsm::{BlobContentNext, EndBlobNext},
+        fsm::{BlobContentNext, EndBlobNext, RequestCounters},
         Stats,
     },
     hashseq::HashSeq,
-    protocol::{GetRequest, RangeSpecSeq},
+    protocol::{ChunkRangesSeq, GetRequest},
     Hash, HashAndFormat,
 };
 use rand::Rng;
@@ -22,11 +22,17 @@ pub async fn unverified_size(
     connection: &iroh::endpoint::Connection,
     hash: &Hash,
 ) -> anyhow::Result<(u64, Stats)> {
-    let request = iroh_blobs::protocol::GetRequest::new(
-        *hash,
-        RangeSpecSeq::from_ranges(vec![ChunkRanges::from(ChunkNum(u64::MAX)..)]),
+    let request = iroh_blobs::protocol::GetRequest::new(*hash, ChunkRangesSeq::all());
+    let request = iroh_blobs::get::fsm::start(
+        connection.clone(),
+        request,
+        RequestCounters {
+            payload_bytes_written: 0,
+            other_bytes_written: 0,
+            payload_bytes_read: 0,
+            other_bytes_read: 0,
+        },
     );
-    let request = iroh_blobs::get::fsm::start(connection.clone(), request);
     let connected = request.next().await?;
     let iroh_blobs::get::fsm::ConnectedNext::StartRoot(start) = connected.next().await? else {
         unreachable!("expected start root");
@@ -46,11 +52,17 @@ pub async fn verified_size(
     hash: &Hash,
 ) -> anyhow::Result<(u64, Stats)> {
     tracing::debug!("Getting verified size of {}", hash.to_hex());
-    let request = iroh_blobs::protocol::GetRequest::new(
-        *hash,
-        RangeSpecSeq::from_ranges(vec![ChunkRanges::from(ChunkNum(u64::MAX)..)]),
+    let request = iroh_blobs::protocol::GetRequest::new(*hash, ChunkRangesSeq::verified_size());
+    let request = iroh_blobs::get::fsm::start(
+        connection.clone(),
+        request,
+        RequestCounters {
+            payload_bytes_written: 0,
+            other_bytes_written: 0,
+            payload_bytes_read: 0,
+            other_bytes_read: 0,
+        },
     );
-    let request = iroh_blobs::get::fsm::start(connection.clone(), request);
     let connected = request.next().await?;
     let iroh_blobs::get::fsm::ConnectedNext::StartRoot(start) = connected.next().await? else {
         unreachable!("expected start root");
@@ -89,12 +101,21 @@ pub async fn get_hash_seq_and_sizes(
     tracing::debug!("Getting hash seq and children sizes of {}", content);
     let request = iroh_blobs::protocol::GetRequest::new(
         *hash,
-        RangeSpecSeq::from_ranges_infinite([
+        ChunkRangesSeq::from_ranges_infinite([
             ChunkRanges::all(),
             ChunkRanges::from(ChunkNum(u64::MAX)..),
         ]),
     );
-    let at_start = iroh_blobs::get::fsm::start(connection.clone(), request);
+    let at_start = iroh_blobs::get::fsm::start(
+        connection.clone(),
+        request,
+        RequestCounters {
+            payload_bytes_written: 0,
+            other_bytes_written: 0,
+            payload_bytes_read: 0,
+            other_bytes_read: 0,
+        },
+    );
     let at_connected = at_start.next().await?;
     let iroh_blobs::get::fsm::ConnectedNext::StartRoot(start) = at_connected.next().await? else {
         unreachable!("query includes root");
@@ -140,9 +161,18 @@ pub async fn chunk_probe(
     chunk: ChunkNum,
 ) -> anyhow::Result<Stats> {
     let ranges = ChunkRanges::from(chunk..chunk + 1);
-    let ranges = RangeSpecSeq::from_ranges([ranges]);
+    let ranges = ChunkRangesSeq::from_ranges([ranges]);
     let request = GetRequest::new(*hash, ranges);
-    let request = iroh_blobs::get::fsm::start(connection.clone(), request);
+    let request = iroh_blobs::get::fsm::start(
+        connection.clone(),
+        request,
+        RequestCounters {
+            payload_bytes_written: 0,
+            other_bytes_written: 0,
+            payload_bytes_read: 0,
+            other_bytes_read: 0,
+        },
+    );
     let connected = request.next().await?;
     let iroh_blobs::get::fsm::ConnectedNext::StartRoot(start) = connected.next().await? else {
         unreachable!("query includes root");
@@ -172,7 +202,7 @@ pub async fn chunk_probe(
 ///
 /// The random chunk is chosen uniformly from the chunks of the children, so
 /// larger children are more likely to be selected.
-pub fn random_hash_seq_ranges(sizes: &[u64], mut rng: impl Rng) -> RangeSpecSeq {
+pub fn random_hash_seq_ranges(sizes: &[u64], mut rng: impl Rng) -> ChunkRangesSeq {
     let total_chunks = sizes
         .iter()
         .map(|size| ChunkNum::full_chunks(*size).0)
@@ -193,5 +223,5 @@ pub fn random_hash_seq_ranges(sizes: &[u64], mut rng: impl Rng) -> RangeSpecSeq 
             ranges.push(ChunkRanges::empty());
         }
     }
-    RangeSpecSeq::from_ranges(ranges)
+    ChunkRangesSeq::from_ranges(ranges)
 }

@@ -9,7 +9,10 @@ use anyhow::{bail, Context};
 use bao_tree::ChunkNum;
 use iroh::{endpoint::Connection, Endpoint, NodeId};
 use iroh_blobs::{
-    get::{fsm::EndBlobNext, Stats},
+    get::{
+        fsm::{EndBlobNext, RequestCounters},
+        Stats,
+    },
     hashseq::HashSeq,
     protocol::GetRequest,
     BlobFormat, Hash, HashAndFormat,
@@ -1054,23 +1057,30 @@ impl Tracker {
                     let (hs, sizes) = self.get_or_insert_sizes(connection, hash).await?;
                     let ranges = random_hash_seq_ranges(&sizes, rand::thread_rng());
                     let text = ranges
-                        .iter_non_empty()
-                        .map(|(index, ranges)| {
-                            format!("child={}, ranges={:?}", index, ranges.to_chunk_ranges())
-                        })
+                        .iter_non_empty_infinite()
+                        .map(|(index, ranges)| format!("child={index}, ranges={:?}", ranges))
                         .collect::<Vec<_>>()
                         .join(", ");
                     tracing::debug!("Seq probing {} using {}", cap, text);
                     let request = GetRequest::new(*hash, ranges);
-                    let request = iroh_blobs::get::fsm::start(connection.clone(), request);
+                    let request = iroh_blobs::get::fsm::start(
+                        connection.clone(),
+                        request,
+                        RequestCounters {
+                            payload_bytes_written: 0,
+                            payload_bytes_read: 0,
+                            other_bytes_written: 0,
+                            other_bytes_read: 0,
+                        },
+                    );
+
                     let connected = request.next().await?;
                     let iroh_blobs::get::fsm::ConnectedNext::StartChild(child) =
                         connected.next().await?
                     else {
                         unreachable!("request does not include root");
                     };
-                    let index =
-                        usize::try_from(child.child_offset()).expect("child offset too large");
+                    let index = usize::try_from(child.offset()).expect("child offset too large");
                     let hash = hs.get(index).expect("request inconsistent with hash seq");
                     let at_blob_header = child.next(hash);
                     let at_end_blob = at_blob_header.drain().await?;
@@ -1166,7 +1176,7 @@ impl Tracker {
             Ok(connection) => connection,
             Err(cause) => {
                 debug!("error dialing host {}: {}", host, cause);
-                return Err(cause);
+                return Err(cause.into());
             }
         };
         let mut results = Vec::new();

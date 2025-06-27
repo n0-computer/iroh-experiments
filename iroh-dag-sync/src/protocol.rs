@@ -224,7 +224,7 @@ pub fn ron_parser() -> ::ron::Options {
 impl Display for TraversalOpts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let res = ron_parser().to_string(self).unwrap();
-        write!(f, "{}", res)
+        write!(f, "{res}")
     }
 }
 

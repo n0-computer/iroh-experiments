@@ -6,12 +6,9 @@ use clap::Parser;
 use futures_lite::StreamExt;
 use ipld_core::codec::Links;
 use iroh::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
-use iroh::NodeAddr;
+use iroh::{NodeAddr, Watcher};
 use iroh_base::ticket::NodeTicket;
-use iroh_blobs::store::{Map, MapEntry};
-use iroh_blobs::{store::Store, BlobFormat};
 use iroh_car::CarReader;
-use iroh_io::AsyncSliceReaderExt;
 use protocol::{ron_parser, Cid, Request};
 use serde::{Deserialize, Serialize};
 use sync::{handle_request, handle_sync_response};
@@ -36,10 +33,10 @@ async fn create_endpoint(
     ipv6_addr: Option<SocketAddrV6>,
 ) -> anyhow::Result<iroh::Endpoint> {
     let secret_key = util::get_or_create_secret()?;
-    let discovery = Box::new(ConcurrentDiscovery::from_services(vec![
-        Box::new(DnsDiscovery::n0_dns()),
-        Box::new(PkarrPublisher::n0_dns(secret_key.clone())),
-    ]));
+    let discovery = ConcurrentDiscovery::from_services(vec![
+        Box::new(DnsDiscovery::n0_dns().build()),
+        Box::new(PkarrPublisher::n0_dns().build(secret_key.clone())),
+    ]);
 
     let mut builder = iroh::Endpoint::builder()
         .secret_key(secret_key)
@@ -68,7 +65,7 @@ fn init_mapping_db(db: &redb::Database) -> anyhow::Result<()> {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
-    let store = iroh_blobs::store::fs::Store::load("blobs.db").await?;
+    let store = iroh_blobs::store::fs::FsStore::load("blobs.db").await?;
     let mapping_store = redb::Database::create("dag.db")?;
     init_mapping_db(&mapping_store)?;
     let rt = LocalPoolHandle::new(1);
@@ -89,14 +86,14 @@ async fn main() -> anyhow::Result<()> {
                 }
                 let links: Vec<_> =
                     serde_ipld_dagcbor::codec::DagCborCodec::links(&data)?.collect();
-                let tag = store.import_bytes(data.into(), BlobFormat::Raw).await?;
-                let hash = tag.hash();
+                let tag = store.add_bytes(data).with_tag().await?;
+                let hash = tag.hash;
                 if !links.is_empty() {
                     println!("{} {} {}", i, cid, links.len());
                     let links = serde_ipld_dagcbor::to_vec(&links)?;
-                    tables.data_to_links.insert((cid.codec(), *hash), links)?;
+                    tables.data_to_links.insert((cid.codec(), hash), links)?;
                 } else {
-                    println!("{} {}", i, cid);
+                    println!("{i} {cid}");
                 }
                 tables
                     .hash_to_blake3
@@ -104,9 +101,9 @@ async fn main() -> anyhow::Result<()> {
             }
             drop(tables);
             tx.commit()?;
-            store.sync().await?;
+            store.sync_db().await?;
             if let Some(first) = first {
-                println!("root: {}", first);
+                println!("root: {first}");
             }
         }
         args::SubCommand::Export(args) => {
@@ -127,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
             let endpoint =
                 create_endpoint(args.net.iroh_ipv4_addr, args.net.iroh_ipv6_addr).await?;
             endpoint.home_relay().initialized().await?;
-            let addr = endpoint.node_addr().await?;
+            let addr = endpoint.node_addr().initialized().await?;
             println!("Node id:\n{}", addr.node_id);
             println!(
                 "Listening on {:#?}, {:#?}",
@@ -148,7 +145,7 @@ async fn main() -> anyhow::Result<()> {
                         });
                     }
                     _ => {
-                        eprintln!("Unknown ALPN: {:?}", alpn);
+                        eprintln!("Unknown ALPN: {alpn:?}");
                     }
                 }
             }
@@ -190,7 +187,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn print_traversal<T>(
     traversal: T,
-    store: &iroh_blobs::store::fs::Store,
+    store: &iroh_blobs::store::fs::FsStore,
 ) -> anyhow::Result<()>
 where
     T: Traversal,
@@ -207,20 +204,23 @@ where
             .db_mut()
             .blake3_hash(cid.hash())?
             .context("blake3 hash not found")?;
-        let data = store.get(&blake3_hash).await?.context("data not found")?;
-        println!("{} {:x} {} {}", cid, cid.codec(), data.size().value(), n);
+        let data = store
+            .get_bytes(blake3_hash)
+            .await
+            .context("data not found")?;
+        println!("{cid} {:x} {} {n}", cid.codec(), data.len());
         n += 1;
     }
 
     if let Some(first) = first {
-        println!("root: {}", first);
+        println!("root: {first}");
     }
     Ok(())
 }
 
 async fn export_traversal<T>(
     traversal: T,
-    store: &iroh_blobs::store::fs::Store,
+    store: &iroh_blobs::store::fs::FsStore,
     mut file: tokio::fs::File,
 ) -> anyhow::Result<()>
 where
@@ -248,8 +248,10 @@ where
             .db_mut()
             .blake3_hash(cid.hash())?
             .context("blake3 hash not found")?;
-        let handle = store.get(&blake3_hash).await?.context("data not found")?;
-        let data = handle.data_reader().read_to_end().await?;
+        let data = store
+            .get_bytes(blake3_hash)
+            .await
+            .context("data not found")?;
         let mut block_bytes = cid.to_bytes(); // postcard::to_extend(&RawCidHeader::from_cid(&cid), Vec::new())?;
                                               // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
         block_bytes.extend_from_slice(&data);

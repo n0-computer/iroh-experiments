@@ -2,13 +2,13 @@ pub mod args;
 
 use std::{
     net::{SocketAddrV4, SocketAddrV6},
+    path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
 use clap::Parser;
-use iroh::Endpoint;
-use iroh_blobs::util::fs::load_secret_key;
+use iroh::{endpoint::BindError, Endpoint, Watcher};
 use iroh_content_discovery::protocol::ALPN;
 use iroh_content_tracker::{
     io::{
@@ -47,7 +47,7 @@ macro_rules! log {
 async fn await_relay_region(endpoint: &Endpoint) -> anyhow::Result<()> {
     let t0 = Instant::now();
     loop {
-        let addr = endpoint.node_addr().await?;
+        let addr = endpoint.node_addr().initialized().await?;
         if addr.relay_url().is_some() {
             break;
         }
@@ -63,7 +63,7 @@ async fn create_endpoint(
     key: iroh::SecretKey,
     ipv4_addr: Option<SocketAddrV4>,
     ipv6_addr: Option<SocketAddrV6>,
-) -> anyhow::Result<Endpoint> {
+) -> Result<Endpoint, BindError> {
     let mut builder = iroh::Endpoint::builder()
         .secret_key(key)
         .discovery_dht()
@@ -113,7 +113,7 @@ async fn server(args: Args) -> anyhow::Result<()> {
     let db = Tracker::new(options, endpoint.clone())?;
     db.dump().await?;
     await_relay_region(&endpoint).await?;
-    let addr = endpoint.node_addr().await?;
+    let addr = endpoint.node_addr().initialized().await?;
     println!("tracker addr: {}\n", addr.node_id);
     info!("listening on {:?}", addr);
     // let db2 = db.clone();
@@ -152,4 +152,54 @@ async fn main() -> anyhow::Result<()> {
     setup_logging();
     let args = Args::parse();
     server(args).await
+}
+
+pub async fn load_secret_key(key_path: PathBuf) -> anyhow::Result<iroh::SecretKey> {
+    use anyhow::Context;
+    use iroh::SecretKey;
+    use tokio::io::AsyncWriteExt;
+
+    if key_path.exists() {
+        let keystr = tokio::fs::read(key_path).await?;
+
+        let ser_key = ssh_key::private::PrivateKey::from_openssh(keystr)?;
+        let ssh_key::private::KeypairData::Ed25519(kp) = ser_key.key_data() else {
+            anyhow::bail!("invalid key format");
+        };
+        let secret_key = SecretKey::from_bytes(&kp.private.to_bytes());
+        Ok(secret_key)
+    } else {
+        let secret_key = SecretKey::generate(rand::rngs::OsRng);
+        let ckey = ssh_key::private::Ed25519Keypair {
+            public: secret_key.public().public().into(),
+            private: secret_key.secret().into(),
+        };
+        let ser_key =
+            ssh_key::private::PrivateKey::from(ckey).to_openssh(ssh_key::LineEnding::default())?;
+
+        // Try to canonicalize if possible
+        let key_path = key_path.canonicalize().unwrap_or(key_path);
+        let key_path_parent = key_path.parent().ok_or_else(|| {
+            anyhow::anyhow!("no parent directory found for '{}'", key_path.display())
+        })?;
+        tokio::fs::create_dir_all(&key_path_parent).await?;
+
+        // write to tempfile
+        let (file, temp_file_path) = tempfile::NamedTempFile::new_in(key_path_parent)
+            .context("unable to create tempfile")?
+            .into_parts();
+        let mut file = tokio::fs::File::from_std(file);
+        file.write_all(ser_key.as_bytes())
+            .await
+            .context("unable to write keyfile")?;
+        file.flush().await?;
+        drop(file);
+
+        // move file
+        tokio::fs::rename(temp_file_path, key_path)
+            .await
+            .context("failed to rename keyfile")?;
+
+        Ok(secret_key)
+    }
 }

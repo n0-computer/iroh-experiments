@@ -9,7 +9,7 @@ use bytes::{Bytes, BytesMut};
 use clap::Parser;
 use h3::{error::ErrorLevel, quic::BidiStream, server::RequestStream};
 use http::{Request, StatusCode};
-use iroh::endpoint::Incoming;
+use iroh::{endpoint::Incoming, Watcher};
 use iroh_base::ticket::NodeTicket;
 use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, error, field, info, info_span, Instrument, Span};
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
     // Wait for direct addresses and a RelayUrl before printing a NodeTicket.
     ep.direct_addresses().initialized().await?;
     ep.home_relay().initialized().await?;
-    let ticket = NodeTicket::new(ep.node_addr().await?);
+    let ticket = NodeTicket::new(ep.node_addr().initialized().await?);
     info!("node ticket: {ticket}");
     info!("run e.g.: cargo run --example client -- iroh+h3://{ticket}/Cargo.toml");
 
