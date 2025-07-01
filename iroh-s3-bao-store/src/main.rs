@@ -130,7 +130,7 @@ fn get_or_create_secret(print: bool) -> anyhow::Result<SecretKey> {
         Err(_) => {
             let key = SecretKey::generate(rand::thread_rng());
             if print {
-                eprintln!("using secret key {}", key);
+                eprintln!("using secret key {key}");
             }
             Ok(key)
         }
@@ -188,7 +188,7 @@ impl CustomEventSender for ClientStatus {
         tracing::info!("{:?}", event);
         let msg = match event {
             provider::Event::ClientConnected { connection_id } => {
-                Some(format!("{} got connection", connection_id))
+                Some(format!("{connection_id} got connection"))
             }
             provider::Event::TransferBlobCompleted {
                 connection_id,
@@ -214,7 +214,7 @@ impl CustomEventSender for ClientStatus {
                 HumanDuration(stats.send.write_bytes.stats.duration)
             )),
             provider::Event::TransferAborted { connection_id, .. } => {
-                Some(format!("{} transfer completed", connection_id))
+                Some(format!("{connection_id} transfer completed"))
             }
             _ => None,
         };
@@ -299,7 +299,7 @@ async fn serve_s3(args: ServeS3Args) -> anyhow::Result<()> {
         |addr| {
             if let Some(hash) = last_hash {
                 let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq)?;
-                println!("collection: {}", ticket);
+                println!("collection: {ticket}");
             }
             Ok(())
         },
@@ -334,11 +334,11 @@ async fn serve_urls(args: ImportS3Args) -> anyhow::Result<()> {
         |addr| {
             for (name, hash) in &hashes {
                 let ticket = BlobTicket::new(addr.clone(), *hash, BlobFormat::Raw)?;
-                println!("{} {}", name, ticket);
+                println!("{name} {ticket}");
             }
             if let Some(hash) = last_hash {
                 let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq)?;
-                println!("collection: {}", ticket);
+                println!("collection: {ticket}");
             }
             Ok(())
         },
