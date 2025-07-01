@@ -43,7 +43,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
     let signed_announce = SignedAnnounce::new(announce, &key)?;
     if !args.tracker.is_empty() {
         for tracker in args.tracker {
-            println!("announcing to {}: {}", tracker, content);
+            println!("announcing to {tracker}: {content}");
             iroh_content_discovery::announce(&endpoint, tracker, signed_announce).await?;
         }
     }
@@ -66,7 +66,7 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
             match iroh_content_discovery::query(&ep, tracker, query).await {
                 Ok(announces) => announces,
                 Err(e) => {
-                    eprintln!("failed to query tracker {}: {}", tracker, e);
+                    eprintln!("failed to query tracker {tracker}: {e}");
                     continue;
                 }
             };

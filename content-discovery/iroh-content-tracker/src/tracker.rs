@@ -1025,7 +1025,7 @@ impl Tracker {
         content: &HashAndFormat,
         probe_kind: ProbeKind,
     ) -> anyhow::Result<Stats> {
-        let cap = format!("{} at {}", content, host);
+        let cap = format!("{content} at {host}");
         let HashAndFormat { hash, format } = content;
         let mut rng = rand::thread_rng();
         let stats = if probe_kind == ProbeKind::Incomplete {
@@ -1058,7 +1058,7 @@ impl Tracker {
                     let ranges = random_hash_seq_ranges(&sizes, rand::thread_rng());
                     let text = ranges
                         .iter_non_empty_infinite()
-                        .map(|(index, ranges)| format!("child={index}, ranges={:?}", ranges))
+                        .map(|(index, ranges)| format!("child={index}, ranges={ranges:?}"))
                         .collect::<Vec<_>>()
                         .join(", ");
                     tracing::debug!("Seq probing {} using {}", cap, text);
