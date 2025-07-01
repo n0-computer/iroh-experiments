@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use anyhow::bail;
 use clap::Parser;
-use iroh::endpoint;
+use iroh::endpoint::{self, BindError};
 use iroh_content_discovery::protocol::{
     AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce,
 };
@@ -43,7 +43,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
     let signed_announce = SignedAnnounce::new(announce, &key)?;
     if !args.tracker.is_empty() {
         for tracker in args.tracker {
-            println!("announcing to {}: {}", tracker, content);
+            println!("announcing to {tracker}: {content}");
             iroh_content_discovery::announce(&endpoint, tracker, signed_announce).await?;
         }
     }
@@ -66,7 +66,7 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
             match iroh_content_discovery::query(&ep, tracker, query).await {
                 Ok(announces) => announces,
                 Err(e) => {
-                    eprintln!("failed to query tracker {}: {}", tracker, e);
+                    eprintln!("failed to query tracker {tracker}: {e}");
                     continue;
                 }
             };
@@ -83,13 +83,13 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
 
 /// Create an endpoint that does look up discovery info via DNS or the DHT, but does not
 /// announce. The client node id is ephemeral and will not be dialed by anyone.
-async fn create_client_endpoint() -> anyhow::Result<endpoint::Endpoint> {
+async fn create_client_endpoint() -> Result<endpoint::Endpoint, BindError> {
     let discovery = iroh::discovery::pkarr::dht::DhtDiscovery::builder()
         .dht(true)
         .n0_dns_pkarr_relay()
         .build()?;
     endpoint::Endpoint::builder()
-        .discovery(Box::new(discovery))
+        .discovery(discovery)
         .bind()
         .await
 }

@@ -1,7 +1,7 @@
 use std::{time::Duration, vec};
 
 use iroh::{protocol::RouterBuilder, Endpoint};
-use iroh_blobs::net_protocol::Blobs;
+use iroh_blobs::{net_protocol::Blobs, store::mem::MemStore};
 use iroh_content_discovery::{
     announce,
     protocol::{AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce},
@@ -25,21 +25,19 @@ async fn smoke_test() -> anyhow::Result<()> {
     let tracker = Tracker::new(options, tracker_ep.clone())?;
     let accept_task = tokio::spawn(tracker.clone().accept_loop(tracker_ep.clone()));
     let tracker_id = tracker_ep.node_id();
-    let blobs = Blobs::memory().build(&provider_ep);
+    let store = MemStore::new();
+    let blobs = Blobs::new(&store, provider_ep.clone(), None);
     let provider_router = RouterBuilder::new(provider_ep.clone())
         .accept(iroh_blobs::ALPN, blobs.clone())
         .spawn();
     let hash = blobs
-        .client()
+        .store()
         .add_bytes(b"some content".to_vec())
         .await?
         .hash;
-    println!("added content with hash: {}", hash);
+    println!("added content with hash: {hash}");
     tokio::time::sleep(Duration::from_secs(1)).await; // wait for the tracker to be ready
-    println!(
-        "querying tracker {} for content with hash: {}",
-        tracker_id, hash
-    );
+    println!("querying tracker {tracker_id} for content with hash: {hash}");
     let q = Query {
         content: hash.into(),
         flags: QueryFlags {
@@ -48,10 +46,7 @@ async fn smoke_test() -> anyhow::Result<()> {
         },
     };
     let res = query(&client_ep, tracker_id, q).await?;
-    println!(
-        "query successful, content found on tracker {} {:?}",
-        tracker_id, res
-    );
+    println!("query successful, content found on tracker {tracker_id} {res:?}");
     assert!(res.is_empty(), "we have not published anything yet!");
     let signed_announce = SignedAnnounce::new(
         Announce {
@@ -62,21 +57,12 @@ async fn smoke_test() -> anyhow::Result<()> {
         },
         provider_ep.secret_key(),
     )?;
-    println!(
-        "announcing content to tracker {}: {:?}",
-        tracker_id, signed_announce
-    );
+    println!("announcing content to tracker {tracker_id}: {signed_announce:?}");
     announce(&client_ep, tracker_id, signed_announce).await?;
-    println!(
-        "querying tracker {} for content with hash: {}",
-        tracker_id, hash
-    );
+    println!("querying tracker {tracker_id} for content with hash: {hash}");
     tokio::time::sleep(Duration::from_secs(1)).await; // give the tracker some time to do the probe
     let res = query(&client_ep, tracker_id, q).await?;
-    println!(
-        "query successful, content found on tracker {} {:?}",
-        tracker_id, res
-    );
+    println!("query successful, content found on tracker {tracker_id} {res:?}");
     assert_eq!(res.len(), 1, "we should have one announce for the content");
     provider_router.shutdown().await?;
     accept_task.abort();

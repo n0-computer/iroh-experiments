@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use axum::{response::Html, routing::get, Router};
+use iroh::Watcher;
 use iroh_base::ticket::NodeTicket;
 use tracing::info;
 
@@ -22,7 +23,7 @@ async fn main() -> Result<()> {
     // Wait for direct addresses and a RelayUrl before printing a NodeTicket.
     ep.direct_addresses().initialized().await?;
     ep.home_relay().initialized().await?;
-    let ticket = NodeTicket::new(ep.node_addr().await?);
+    let ticket = NodeTicket::new(ep.node_addr().initialized().await?);
     info!("node ticket: {ticket}");
     info!("run: cargo run --example client -- iroh+h3://{ticket}/");
 
