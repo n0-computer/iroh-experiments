@@ -1,7 +1,7 @@
 use std::{time::Duration, vec};
 
 use iroh::{protocol::RouterBuilder, Endpoint};
-use iroh_blobs::net_protocol::Blobs;
+use iroh_blobs::{net_protocol::Blobs, store::mem::MemStore};
 use iroh_content_discovery::{
     announce,
     protocol::{AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce},
@@ -25,12 +25,13 @@ async fn smoke_test() -> anyhow::Result<()> {
     let tracker = Tracker::new(options, tracker_ep.clone())?;
     let accept_task = tokio::spawn(tracker.clone().accept_loop(tracker_ep.clone()));
     let tracker_id = tracker_ep.node_id();
-    let blobs = Blobs::memory().build(&provider_ep);
+    let store = MemStore::new();
+    let blobs = Blobs::new(&store, provider_ep.clone(), None);
     let provider_router = RouterBuilder::new(provider_ep.clone())
         .accept(iroh_blobs::ALPN, blobs.clone())
         .spawn();
     let hash = blobs
-        .client()
+        .store()
         .add_bytes(b"some content".to_vec())
         .await?
         .hash;
