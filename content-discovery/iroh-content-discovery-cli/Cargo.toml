@@ -1,6 +1,6 @@
 [package]
 name = "iroh-content-discovery-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Content discovery for iroh, using a simple tracker protocol"
 license = "MIT OR Apache-2.0"
@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 iroh = { workspace = true }
 iroh-blobs = { workspace = true }
-iroh-content-discovery = { path = "../iroh-content-discovery", version = "0.1.0" }
+iroh-content-discovery = { path = "../iroh-content-discovery", version = "0.2.0" }
 anyhow = { workspace = true, features = ["backtrace"] }
 futures = { version = "0.3.25" }
 clap = { version = "4", features = ["derive"] }
