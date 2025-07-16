@@ -1838,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-content-discovery"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "derive_more 1.0.0",
@@ -1860,7 +1860,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-content-discovery-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1876,7 +1876,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-content-tracker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bao-tree",
