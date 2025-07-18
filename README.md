@@ -6,22 +6,26 @@ low level and unpolished.
 Some of the things in this repo might make it to [iroh-examples] or even into
 iroh itself, most will not.
 
-## Iroh-dag-sync
-
-An experiment how we could deal with DAGs in iroh, as well as how to safely
-handle non-blake3 hash functions.
-
-## Content-discovery
+## [content-discovery](content-discovery)
 
 A complete content disccovery system for iroh, including a tracker, a client
 crate to use the tracker, and [pkarr] integration for finding trackers.
 
-## Iroh-pkarr-naming-system
+## [h3-iroh](h3-iroh)
 
-Experiment how to do something similar to [ipns] using [pkarr] and the
+Sending HTTP3 requests over iroh connections via the [h3](https://crates.io/crates/h3) crate.
+
+## [iroh-dag-sync](iroh-dag-sync)
+
+An experiment trying to bridge the gap between iroh-blobs and IPFS, allowing you to sync
+IPFS DAGs with non-BLAKE3 CIDs via iroh-blobs.
+
+## [iroh-pkarr-naming-system](iroh-pkarr-naming-system)
+
+Experiment of how to do something similar to [ipns] using [pkarr] and the
 bittorrent [mainline] DHT.
 
-## Iroh-s3-bao-store
+## [iroh-s3-bao-store](iroh-s3-bao-store)
 
 An iroh-blobs store implementation that keeps the data on s3. Useful to provide
 content-addressing to existing public resources.
