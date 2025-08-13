@@ -1,3 +1,13 @@
+//! A simple iroh connection pool
+//!
+//! Entry point is [`ConnectionPool`]. You create a connection pool for a specific
+//! ALPN and [`Options`]. Then the pool will manage connections for you.
+//!
+//! Access to connections is via the [`ConnectionPool::connect`] method, which
+//! gives you access to a connection if possible.
+//!
+//! It is important that you use the connection only in the future passed to
+//! connect, and don't clone it out of the future.
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use iroh::{
@@ -32,7 +42,7 @@ impl Default for Options {
 struct Context {
     options: Options,
     endpoint: Endpoint,
-    owner: HandlerPool,
+    owner: ConnectionPool,
     alpn: Vec<u8>,
 }
 
@@ -180,7 +190,7 @@ impl Actor {
                     options,
                     alpn: alpn.to_vec(),
                     endpoint,
-                    owner: HandlerPool { tx: tx.clone() },
+                    owner: ConnectionPool { tx: tx.clone() },
                 }),
             },
             tx,
@@ -236,8 +246,8 @@ impl Actor {
 }
 
 #[derive(Debug, Snafu)]
-pub enum HandlerPoolError {
-    /// The handler pool has been shut down
+pub enum ConnectionPoolError {
+    /// The connection pool has been shut down
     Shutdown,
 }
 
@@ -246,11 +256,11 @@ pub struct ExecuteError;
 
 pub type ExecuteResult = std::result::Result<(), ExecuteError>;
 
-pub struct HandlerPool {
+pub struct ConnectionPool {
     tx: mpsc::Sender<ActorMessage>,
 }
 
-impl HandlerPool {
+impl ConnectionPool {
     pub fn new(endpoint: Endpoint, alpn: &[u8], options: Options) -> Self {
         let (actor, tx) = Actor::new(endpoint, alpn, options);
 
@@ -271,7 +281,7 @@ impl HandlerPool {
         &self,
         id: NodeId,
         f: F,
-    ) -> std::result::Result<(), HandlerPoolError>
+    ) -> std::result::Result<(), ConnectionPoolError>
     where
         F: FnOnce(&ConnectResult) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ExecuteResult> + Send + 'static,
@@ -282,7 +292,7 @@ impl HandlerPool {
         self.tx
             .send(ActorMessage::Handle { id, handler })
             .await
-            .map_err(|_| HandlerPoolError::Shutdown)?;
+            .map_err(|_| ConnectionPoolError::Shutdown)?;
 
         Ok(())
     }
@@ -291,11 +301,11 @@ impl HandlerPool {
     ///
     /// This will finish pending tasks and close the connection. New tasks will
     /// get a new connection if they are submitted after this call
-    pub async fn close(&self, id: NodeId) -> std::result::Result<(), HandlerPoolError> {
+    pub async fn close(&self, id: NodeId) -> std::result::Result<(), ConnectionPoolError> {
         self.tx
             .send(ActorMessage::ConnectionShutdown { id })
             .await
-            .map_err(|_| HandlerPoolError::Shutdown)?;
+            .map_err(|_| ConnectionPoolError::Shutdown)?;
         Ok(())
     }
 }

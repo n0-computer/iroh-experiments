@@ -35,7 +35,7 @@ struct Context {
     options: Options,
     alpn: Vec<u8>,
     endpoint: Endpoint,
-    owner: HandlerPool0Rtt,
+    owner: ConnectionPool0Rtt,
 }
 
 type BoxedHandler = Box<dyn FnOnce(&ConnectResult) -> BoxFuture<ExecuteResult> + Send + 'static>;
@@ -225,7 +225,7 @@ impl Actor {
                     options,
                     alpn: alpn.to_vec(),
                     endpoint,
-                    owner: HandlerPool0Rtt { tx: tx.clone() },
+                    owner: ConnectionPool0Rtt { tx: tx.clone() },
                 }),
             },
             tx,
@@ -280,7 +280,7 @@ impl Actor {
 }
 
 #[derive(Debug, Snafu)]
-pub enum HandlerPoolError {
+pub enum ConnectionPoolError {
     Shutdown,
 }
 
@@ -291,11 +291,11 @@ pub type ExecuteResult = std::result::Result<(), ExecuteError>;
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct HandlerPool0Rtt {
+pub struct ConnectionPool0Rtt {
     tx: mpsc::Sender<ActorMessage>,
 }
 
-impl HandlerPool0Rtt {
+impl ConnectionPool0Rtt {
     pub fn new(endpoint: Endpoint, alpn: &[u8], options: Options) -> Self {
         let (actor, tx) = Actor::new(endpoint, alpn, options);
 
@@ -309,11 +309,11 @@ impl HandlerPool0Rtt {
     ///
     /// This will finish pending tasks and close the connection. New tasks will
     /// get a new connection if they are submitted after this call
-    pub async fn close(&self, id: NodeId) -> std::result::Result<(), HandlerPoolError> {
+    pub async fn close(&self, id: NodeId) -> std::result::Result<(), ConnectionPoolError> {
         self.tx
             .send(ActorMessage::ConnectionShutdown { id })
             .await
-            .map_err(|_| HandlerPoolError::Shutdown)?;
+            .map_err(|_| ConnectionPoolError::Shutdown)?;
         Ok(())
     }
 
@@ -330,7 +330,7 @@ impl HandlerPool0Rtt {
         &self,
         id: NodeId,
         f: F,
-    ) -> std::result::Result<(), HandlerPoolError>
+    ) -> std::result::Result<(), ConnectionPoolError>
     where
         F: FnOnce(&ConnectResult) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ExecuteResult> + Send + 'static,
@@ -341,7 +341,7 @@ impl HandlerPool0Rtt {
         self.tx
             .send(ActorMessage::Handle { id, handler })
             .await
-            .map_err(|_| HandlerPoolError::Shutdown)?;
+            .map_err(|_| ConnectionPoolError::Shutdown)?;
 
         Ok(())
     }
