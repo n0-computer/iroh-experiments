@@ -141,10 +141,9 @@ async fn run_connection_actor(
         Ok((state, forwarder)) => (state, forwarder),
         Err(_) => (Err(PoolConnectError::Timeout), MaybeFuture::None),
     };
-    if state.is_err()
-        && context.owner.close(node_id).await.is_err() {
-            return;
-        }
+    if state.is_err() && context.owner.close(node_id).await.is_err() {
+        return;
+    }
     let mut tasks = JoinSet::new();
     let idle_timer = MaybeFuture::default();
     tokio::pin!(idle_timer);
@@ -169,29 +168,26 @@ async fn run_connection_actor(
             }
 
             // Handle completed tasks
-            task_result = tasks.join_next(), if !tasks.is_empty() => {
+            Some(task_result) = tasks.join_next(), if !tasks.is_empty() => {
                 match task_result {
-                    Some(Ok(Ok(()))) => {
+                    Ok(Ok(())) => {
                         trace!("Task completed for node {}", node_id);
                     }
-                    Some(Ok(Err(e))) => {
+                    Ok(Err(e)) => {
                         trace!("Task failed for node {}: {}", node_id, e);
                         if let Ok((conn, _)) = state {
-                            conn.close(1u32.into(), b"");
+                            conn.close(1u32.into(), b"error");
                         }
                         state = Err(PoolConnectError::ExecuteError(e));
                         context.owner.close(node_id).await.ok();
                     }
-                    Some(Err(e)) => {
+                    Err(e) => {
                         error!("Task panicked for node {}: {}", node_id, e);
                         if let Ok((conn, _)) = state {
-                            conn.close(1u32.into(), b"");
+                            conn.close(1u32.into(), b"panic");
                         }
                         state = Err(PoolConnectError::JoinError(e));
                         context.owner.close(node_id).await.ok();
-                    }
-                    None => {
-                        trace!("Task was cancelled or already completed for node {}", node_id);
                     }
                 }
 
@@ -226,7 +222,7 @@ async fn run_connection_actor(
     }
 
     if let Ok((conn, _)) = state {
-        conn.close(0u32.into(), b"");
+        conn.close(0u32.into(), b"idle");
     }
 
     trace!("Connection actor for {} shutting down", node_id);
