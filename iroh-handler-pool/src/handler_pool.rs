@@ -1,7 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::anyhow;
-use iroh::{Endpoint, NodeId, endpoint::Connection};
+use iroh::{
+    Endpoint, NodeId,
+    endpoint::{ConnectError, Connection},
+};
+use snafu::Snafu;
 use tokio::{
     sync::mpsc,
     task::{JoinError, JoinSet},
@@ -15,14 +18,16 @@ pub struct Options {
 }
 
 type BoxedHandler = Box<
-    dyn FnOnce(&ConnectResult) -> n0_future::boxed::BoxFuture<anyhow::Result<()>> + Send + 'static,
+    dyn FnOnce(&ConnectResult) -> n0_future::boxed::BoxFuture<std::result::Result<(), ExecuteError>>
+        + Send
+        + 'static,
 >;
 
 pub enum ConnectResult {
     Connected(Connection),
     Timeout,
-    ConnectError(anyhow::Error),
-    ConnectionError(anyhow::Error),
+    ConnectError(ConnectError),
+    ExecuteError(ExecuteError),
     JoinError(JoinError),
 }
 
@@ -38,7 +43,7 @@ async fn run_connection_actor(
     mut rx: mpsc::Receiver<BoxedHandler>,
     main_tx: mpsc::Sender<ActorMessage>,
     options: Arc<Options>,
-) -> anyhow::Result<()> {
+) {
     // Connect to the node
     let mut state = match endpoint
         .connect(node_id, &options.alpn)
@@ -89,7 +94,7 @@ async fn run_connection_actor(
                         if let ConnectResult::Connected(conn) = state {
                             conn.close(1u32.into(), b"");
                         }
-                        state = ConnectResult::ConnectionError(e);
+                        state = ConnectResult::ExecuteError(e);
                         let _ = main_tx.send(ActorMessage::ConnectionShutdown { id: node_id }).await;
                     }
                     Some(Err(e)) => {
@@ -132,7 +137,6 @@ async fn run_connection_actor(
     }
 
     tracing::debug!("Connection actor for {} shutting down", node_id);
-    Ok(())
 }
 
 struct Actor {
@@ -158,7 +162,7 @@ impl Actor {
         )
     }
 
-    pub async fn run(mut self) -> anyhow::Result<()> {
+    pub async fn run(mut self) {
         while let Some(msg) = self.rx.recv().await {
             match msg {
                 ActorMessage::Handle { id, mut handler } => {
@@ -183,13 +187,9 @@ impl Actor {
                     let main_tx = self.tx.clone(); // Assuming we store the sender
                     let options = self.options.clone();
 
-                    tokio::spawn(async move {
-                        if let Err(e) =
-                            run_connection_actor(endpoint, id, conn_rx, main_tx, options).await
-                        {
-                            tracing::error!("Connection actor for {} failed: {}", id, e);
-                        }
-                    });
+                    tokio::spawn(run_connection_actor(
+                        endpoint, id, conn_rx, main_tx, options,
+                    ));
 
                     // Send the handler to the new actor
                     if conn_tx.send(handler).await.is_err() {
@@ -207,9 +207,16 @@ impl Actor {
                 }
             }
         }
-        Ok(())
     }
 }
+
+#[derive(Debug, Snafu)]
+pub enum HandlerPoolError {
+    Shutdown,
+}
+
+#[derive(Debug, Snafu)]
+pub struct ExecuteError;
 
 pub struct HandlerPool {
     tx: mpsc::Sender<ActorMessage>,
@@ -220,11 +227,7 @@ impl HandlerPool {
         let (actor, tx) = Actor::new(endpoint, options);
 
         // Spawn the main actor
-        tokio::spawn(async move {
-            if let Err(e) = actor.run().await {
-                tracing::error!("Main actor failed: {}", e);
-            }
-        });
+        tokio::spawn(actor.run());
 
         Self { tx }
     }
@@ -236,19 +239,23 @@ impl HandlerPool {
     /// If connection establishment fails, the handler will get passed a `ConnectResult` containing the error.
     ///
     /// The fn f is guaranteed to be called exactly once, unless the tokio runtime is shutting down.
-    pub async fn connect<F, Fut>(&self, id: NodeId, f: F) -> anyhow::Result<()>
+    pub async fn connect<F, Fut>(
+        &self,
+        id: NodeId,
+        f: F,
+    ) -> std::result::Result<(), HandlerPoolError>
     where
         F: FnOnce(&ConnectResult) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
+        Fut: std::future::Future<Output = std::result::Result<(), ExecuteError>> + Send + 'static,
     {
         let handler = Box::new(move |conn: &ConnectResult| {
-            Box::pin(f(conn)) as n0_future::boxed::BoxFuture<anyhow::Result<()>>
+            Box::pin(f(conn)) as n0_future::boxed::BoxFuture<std::result::Result<(), ExecuteError>>
         });
 
         self.tx
             .send(ActorMessage::Handle { id, handler })
             .await
-            .map_err(|_| anyhow!("Main actor has shut down"))?;
+            .map_err(|_| HandlerPoolError::Shutdown)?;
 
         Ok(())
     }

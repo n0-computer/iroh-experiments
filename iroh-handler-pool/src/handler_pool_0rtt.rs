@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::anyhow;
 use iroh::{
     Endpoint, NodeId,
-    endpoint::{ConnectOptions, Connection},
+    endpoint::{ConnectOptions, ConnectWithOptsError, Connection},
 };
+use snafu::Snafu;
 use tokio::{
     sync::{broadcast, mpsc},
     task::{JoinError, JoinSet},
@@ -19,15 +19,17 @@ pub struct Options {
 }
 
 type BoxedHandler = Box<
-    dyn FnOnce(&ConnectResult) -> n0_future::boxed::BoxFuture<anyhow::Result<()>> + Send + 'static,
+    dyn FnOnce(&ConnectResult) -> n0_future::boxed::BoxFuture<std::result::Result<(), ExecuteError>>
+        + Send
+        + 'static,
 >;
 
 pub enum ConnectResult {
     Connected(Connection, broadcast::Receiver<bool>),
     Timeout,
-    ConnectError(anyhow::Error),
-    ConnectError2(iroh::endpoint::ConnectionError),
-    HandlerError(anyhow::Error),
+    ConnectError(ConnectWithOptsError),
+    ConnectionError(iroh::endpoint::ConnectionError),
+    ExecuteError(ExecuteError),
     JoinError(JoinError),
 }
 
@@ -65,7 +67,7 @@ async fn connect(
         Err(connecting) => {
             trace!("Failed to connect using 0-RTT to node {}", node_id);
             let res = match connecting.await {
-                Err(cause) => ConnectResult::ConnectError2(cause),
+                Err(cause) => ConnectResult::ConnectionError(cause),
                 Ok(connection) => ConnectResult::Connected(connection, accepted(true)),
             };
             return (res, None);
@@ -85,7 +87,7 @@ async fn run_connection_actor(
     mut rx: mpsc::Receiver<BoxedHandler>,
     owner: HandlerPool0Rtt,
     options: Arc<Options>,
-) -> anyhow::Result<()> {
+) {
     // Connect to the node
     let (mut state, mut forwarder) = match connect(endpoint, node_id, &options.alpn)
         .timeout(options.connect_timeout)
@@ -131,7 +133,7 @@ async fn run_connection_actor(
                         if let ConnectResult::Connected(conn, _) = state {
                             conn.close(1u32.into(), b"");
                         }
-                        state = ConnectResult::HandlerError(e);
+                        state = ConnectResult::ExecuteError(e);
                         owner.close(node_id).await.ok();
                     }
                     Some(Err(e)) => {
@@ -178,7 +180,6 @@ async fn run_connection_actor(
     }
 
     trace!("Connection actor for {} shutting down", node_id);
-    Ok(())
 }
 
 struct Actor {
@@ -204,7 +205,7 @@ impl Actor {
         )
     }
 
-    pub async fn run(mut self) -> anyhow::Result<()> {
+    pub async fn run(mut self) {
         while let Some(msg) = self.rx.recv().await {
             match msg {
                 ActorMessage::Handle { id, mut handler } => {
@@ -229,13 +230,9 @@ impl Actor {
                     let main_tx = self.tx.clone(); // Assuming we store the sender
                     let options = self.options.clone();
 
-                    tokio::spawn(async move {
-                        if let Err(e) =
-                            run_connection_actor(endpoint, id, conn_rx, main_tx, options).await
-                        {
-                            tracing::error!("Connection actor for {} failed: {}", id, e);
-                        }
-                    });
+                    tokio::spawn(run_connection_actor(
+                        endpoint, id, conn_rx, main_tx, options,
+                    ));
 
                     // Send the handler to the new actor
                     if conn_tx.send(handler).await.is_err() {
@@ -253,9 +250,16 @@ impl Actor {
                 }
             }
         }
-        Ok(())
     }
 }
+
+#[derive(Debug, Snafu)]
+pub enum HandlerPoolError {
+    Shutdown,
+}
+
+#[derive(Debug, Snafu)]
+pub struct ExecuteError;
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
@@ -268,11 +272,7 @@ impl HandlerPool0Rtt {
         let (actor, tx) = Actor::new(endpoint, options);
 
         // Spawn the main actor
-        tokio::spawn(async move {
-            if let Err(e) = actor.run().await {
-                tracing::error!("Main actor failed: {}", e);
-            }
-        });
+        tokio::spawn(actor.run());
 
         Self { tx }
     }
@@ -281,11 +281,11 @@ impl HandlerPool0Rtt {
     ///
     /// This will finish pending tasks and close the connection. New tasks will
     /// get a new connection if they are submitted after this call
-    pub async fn close(&self, id: NodeId) -> anyhow::Result<()> {
+    pub async fn close(&self, id: NodeId) -> std::result::Result<(), HandlerPoolError> {
         self.tx
             .send(ActorMessage::ConnectionShutdown { id })
             .await
-            .map_err(|_| anyhow!("Main actor has shut down"))?;
+            .map_err(|_| HandlerPoolError::Shutdown)?;
         Ok(())
     }
 
@@ -298,19 +298,23 @@ impl HandlerPool0Rtt {
     /// The fn f is guaranteed to be called exactly once, unless the tokio runtime is shutting down.
     /// If the fn returns an error, it is assumed that the connection is no longer valid. This will cause
     /// the connection to be closed and a new one to be established for future calls.
-    pub async fn connect<F, Fut>(&self, id: NodeId, f: F) -> anyhow::Result<()>
+    pub async fn connect<F, Fut>(
+        &self,
+        id: NodeId,
+        f: F,
+    ) -> std::result::Result<(), HandlerPoolError>
     where
         F: FnOnce(&ConnectResult) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
+        Fut: std::future::Future<Output = std::result::Result<(), ExecuteError>> + Send + 'static,
     {
         let handler = Box::new(move |conn: &ConnectResult| {
-            Box::pin(f(conn)) as n0_future::boxed::BoxFuture<anyhow::Result<()>>
+            Box::pin(f(conn)) as n0_future::boxed::BoxFuture<std::result::Result<(), ExecuteError>>
         });
 
         self.tx
             .send(ActorMessage::Handle { id, handler })
             .await
-            .map_err(|_| anyhow!("Main actor has shut down"))?;
+            .map_err(|_| HandlerPoolError::Shutdown)?;
 
         Ok(())
     }
