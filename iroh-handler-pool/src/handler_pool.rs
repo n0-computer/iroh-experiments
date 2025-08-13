@@ -24,10 +24,15 @@ type BoxedHandler = Box<
 >;
 
 pub enum ConnectResult {
+    /// We got a connection
     Connected(Connection),
+    /// Timeout during connect
     Timeout,
+    /// Error during connect
     ConnectError(ConnectError),
+    /// Error during last execute
     ExecuteError(ExecuteError),
+    /// Handler actor panicked
     JoinError(JoinError),
 }
 
@@ -212,6 +217,7 @@ impl Actor {
 
 #[derive(Debug, Snafu)]
 pub enum HandlerPoolError {
+    /// The handler pool has been shut down
     Shutdown,
 }
 
@@ -235,8 +241,8 @@ impl HandlerPool {
     /// Connect to a node and execute the given handler function
     ///
     /// The connection will either be a new connection or an existing one if it is already established.
-    /// If connection establishment succeeds, the handler will be called with a `ConnectResult::Connected(Connection)`.
-    /// If connection establishment fails, the handler will get passed a `ConnectResult` containing the error.
+    /// If connection establishment succeeds, the handler will be called with a [`ConnectResult::Connected`].
+    /// If connection establishment fails, the handler will get passed a [`ConnectResult`] containing the error.
     ///
     /// The fn f is guaranteed to be called exactly once, unless the tokio runtime is shutting down.
     pub async fn connect<F, Fut>(
