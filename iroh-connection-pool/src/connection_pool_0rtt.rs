@@ -141,11 +141,10 @@ async fn run_connection_actor(
         Ok((state, forwarder)) => (state, forwarder),
         Err(_) => (Err(PoolConnectError::Timeout), MaybeFuture::None),
     };
-    if state.is_err() {
-        if context.owner.close(node_id).await.is_err() {
+    if state.is_err()
+        && context.owner.close(node_id).await.is_err() {
             return;
         }
-    }
     let mut tasks = JoinSet::new();
     let idle_timer = MaybeFuture::default();
     tokio::pin!(idle_timer);
