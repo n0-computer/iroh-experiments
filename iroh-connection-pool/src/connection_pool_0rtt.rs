@@ -1,3 +1,16 @@
+//! An iroh connection pool that supports 0Rtt connections
+//!
+//! Entry point is [`ConnectionPool0Rtt`]. You create a connection pool for a specific
+//! ALPN and [`Options`]. Then the pool will manage connections for you.
+//!
+//! Access to connections is via the [`ConnectionPool0Rtt::connect`] method, which
+//! gives you access to a connection if possible.
+//!
+//! It is important that you use the connection only in the future passed to
+//! connect, and don't clone it out of the future.
+//!
+//! For what 0Rtt connections are and why you might want to use them, see this
+//! [blog post](https://www.iroh.computer/blog/0rtt-api).
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use iroh::{
