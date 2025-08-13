@@ -28,6 +28,13 @@ impl Default for Options {
     }
 }
 
+struct Context {
+    options: Options,
+    endpoint: Endpoint,
+    owner: HandlerPool,
+    alpn: Vec<u8>,
+}
+
 type BoxedHandler = Box<
     dyn FnOnce(&ConnectResult) -> n0_future::boxed::BoxFuture<std::result::Result<(), ExecuteError>>
         + Send
@@ -56,17 +63,15 @@ enum ActorMessage {
 
 /// Run a connection actor for a single node
 async fn run_connection_actor(
-    endpoint: Endpoint,
     node_id: NodeId,
     mut rx: mpsc::Receiver<BoxedHandler>,
-    main_tx: mpsc::Sender<ActorMessage>,
-    options: Arc<Options>,
-    alpn: Arc<Vec<u8>>,
+    context: Arc<Context>,
 ) {
     // Connect to the node
-    let mut state = match endpoint
-        .connect(node_id, &alpn)
-        .timeout(options.connect_timeout)
+    let mut state = match context
+        .endpoint
+        .connect(node_id, &context.alpn)
+        .timeout(context.options.connect_timeout)
         .await
     {
         Ok(Ok(conn)) => ConnectResult::Connected(conn),
@@ -74,13 +79,11 @@ async fn run_connection_actor(
         Err(_) => ConnectResult::Timeout,
     };
     if !matches!(state, ConnectResult::Connected(_)) {
-        let _ = main_tx
-            .send(ActorMessage::ConnectionShutdown { id: node_id })
-            .await;
+        context.owner.close(node_id).await.ok();
     }
 
     let mut tasks = JoinSet::new();
-    let idle_timer = tokio::time::sleep(options.idle_timeout);
+    let idle_timer = tokio::time::sleep(context.options.idle_timeout);
     tokio::pin!(idle_timer);
 
     loop {
@@ -92,7 +95,7 @@ async fn run_connection_actor(
                 match handler {
                     Some(handler) => {
                         // Reset idle timer by creating a new one
-                        idle_timer.set(tokio::time::sleep(options.idle_timeout));
+                        idle_timer.set(tokio::time::sleep(context.options.idle_timeout));
                         tasks.spawn(handler(&state));
                     }
                     None => {
@@ -114,7 +117,7 @@ async fn run_connection_actor(
                             conn.close(1u32.into(), b"");
                         }
                         state = ConnectResult::ExecuteError(e);
-                        let _ = main_tx.send(ActorMessage::ConnectionShutdown { id: node_id }).await;
+                        let _ = context.owner.close(node_id).await;
                     }
                     Some(Err(e)) => {
                         tracing::error!("Task panicked for node {}: {}", node_id, e);
@@ -122,7 +125,7 @@ async fn run_connection_actor(
                             conn.close(1u32.into(), b"");
                         }
                         state = ConnectResult::JoinError(e);
-                        let _ = main_tx.send(ActorMessage::ConnectionShutdown { id: node_id }).await;
+                        let _ = context.owner.close(node_id).await;
                     }
                     None => {
                         tracing::debug!("Task was cancelled or already completed for node {}", node_id);
@@ -138,7 +141,8 @@ async fn run_connection_actor(
             // Idle timeout - request shutdown
             _ = &mut idle_timer, if tasks.is_empty() => {
                 tracing::debug!("Connection to {} idle, requesting shutdown", node_id);
-                let _ = main_tx.send(ActorMessage::ConnectionShutdown { id: node_id }).await;
+
+                context.owner.close(node_id).await.ok();
                 // Don't break here - wait for main actor to close our channel
             }
         }
@@ -159,12 +163,9 @@ async fn run_connection_actor(
 }
 
 struct Actor {
-    tx: mpsc::Sender<ActorMessage>,
     rx: mpsc::Receiver<ActorMessage>,
-    endpoint: Endpoint,
     connections: HashMap<NodeId, mpsc::Sender<BoxedHandler>>,
-    options: Arc<Options>,
-    alpn: Arc<Vec<u8>>,
+    context: Arc<Context>,
 }
 
 impl Actor {
@@ -177,11 +178,13 @@ impl Actor {
         (
             Self {
                 rx,
-                tx: tx.clone(),
-                endpoint,
-                options: Arc::new(options),
                 connections: HashMap::new(),
-                alpn: Arc::new(alpn.to_vec()),
+                context: Arc::new(Context {
+                    options,
+                    alpn: alpn.to_vec(),
+                    endpoint,
+                    owner: HandlerPool { tx: tx.clone() },
+                }),
             },
             tx,
         )
@@ -205,21 +208,16 @@ impl Actor {
                     }
 
                     // No connection actor or it died - spawn a new one
-                    if self.connections.len() >= self.options.max_connections {
+                    if self.connections.len() >= self.context.options.max_connections {
                         handler(&ConnectResult::TooManyConnections).await.ok();
                         continue;
                     }
                     let (conn_tx, conn_rx) = mpsc::channel(100);
                     self.connections.insert(id, conn_tx.clone());
 
-                    let endpoint = self.endpoint.clone();
-                    let main_tx = self.tx.clone(); // Assuming we store the sender
-                    let options = self.options.clone();
-                    let alpn = self.alpn.clone();
+                    let context = self.context.clone();
 
-                    tokio::spawn(run_connection_actor(
-                        endpoint, id, conn_rx, main_tx, options, alpn,
-                    ));
+                    tokio::spawn(run_connection_actor(id, conn_rx, context));
 
                     // Send the handler to the new actor
                     if conn_tx.send(handler).await.is_err() {
@@ -288,6 +286,18 @@ impl HandlerPool {
             .await
             .map_err(|_| HandlerPoolError::Shutdown)?;
 
+        Ok(())
+    }
+
+    /// Close an existing connection, if it exists
+    ///
+    /// This will finish pending tasks and close the connection. New tasks will
+    /// get a new connection if they are submitted after this call
+    pub async fn close(&self, id: NodeId) -> std::result::Result<(), HandlerPoolError> {
+        self.tx
+            .send(ActorMessage::ConnectionShutdown { id })
+            .await
+            .map_err(|_| HandlerPoolError::Shutdown)?;
         Ok(())
     }
 }
