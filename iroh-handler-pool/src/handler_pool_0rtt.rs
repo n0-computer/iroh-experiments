@@ -12,11 +12,21 @@ use tokio::{
 use tokio_util::time::FutureExt;
 use tracing::{error, trace};
 
+#[derive(Debug, Clone, Copy)]
 pub struct Options {
     pub idle_timeout: std::time::Duration,
     pub connect_timeout: std::time::Duration,
     pub max_connections: usize,
-    pub alpn: Vec<u8>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            idle_timeout: std::time::Duration::from_secs(5),
+            connect_timeout: std::time::Duration::from_secs(1),
+            max_connections: 1024,
+        }
+    }
 }
 
 type BoxedHandler = Box<
@@ -88,10 +98,11 @@ async fn run_connection_actor(
     node_id: NodeId,
     mut rx: mpsc::Receiver<BoxedHandler>,
     owner: HandlerPool0Rtt,
+    alpn: Arc<Vec<u8>>,
     options: Arc<Options>,
 ) {
     // Connect to the node
-    let (mut state, mut forwarder) = match connect(endpoint, node_id, &options.alpn)
+    let (mut state, mut forwarder) = match connect(endpoint, node_id, &alpn)
         .timeout(options.connect_timeout)
         .await
     {
@@ -190,10 +201,15 @@ struct Actor {
     endpoint: Endpoint,
     connections: HashMap<NodeId, mpsc::Sender<BoxedHandler>>,
     options: Arc<Options>,
+    alpn: Arc<Vec<u8>>,
 }
 
 impl Actor {
-    pub fn new(endpoint: Endpoint, options: Options) -> (Self, mpsc::Sender<ActorMessage>) {
+    pub fn new(
+        endpoint: Endpoint,
+        alpn: &[u8],
+        options: Options,
+    ) -> (Self, mpsc::Sender<ActorMessage>) {
         let (tx, rx) = mpsc::channel(100);
         (
             Self {
@@ -202,6 +218,7 @@ impl Actor {
                 endpoint,
                 connections: HashMap::new(),
                 options: Arc::new(options),
+                alpn: Arc::new(alpn.to_vec()),
             },
             tx,
         )
@@ -235,9 +252,10 @@ impl Actor {
                     let endpoint = self.endpoint.clone();
                     let main_tx = self.tx.clone(); // Assuming we store the sender
                     let options = self.options.clone();
+                    let alpn = self.alpn.clone();
 
                     tokio::spawn(run_connection_actor(
-                        endpoint, id, conn_rx, main_tx, options,
+                        endpoint, id, conn_rx, main_tx, alpn, options,
                     ));
 
                     // Send the handler to the new actor
@@ -274,8 +292,8 @@ pub struct HandlerPool0Rtt {
 }
 
 impl HandlerPool0Rtt {
-    pub fn new(endpoint: Endpoint, options: Options) -> Self {
-        let (actor, tx) = Actor::new(endpoint, options);
+    pub fn new(endpoint: Endpoint, alpn: &[u8], options: Options) -> Self {
+        let (actor, tx) = Actor::new(endpoint, alpn, options);
 
         // Spawn the main actor
         tokio::spawn(actor.run());
