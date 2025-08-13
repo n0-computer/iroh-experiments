@@ -15,6 +15,7 @@ use tracing::{error, trace};
 pub struct Options {
     pub idle_timeout: std::time::Duration,
     pub connect_timeout: std::time::Duration,
+    pub max_connections: usize,
     pub alpn: Vec<u8>,
 }
 
@@ -27,6 +28,7 @@ type BoxedHandler = Box<
 pub enum ConnectResult {
     Connected(Connection, broadcast::Receiver<bool>),
     Timeout,
+    TooManyConnections,
     ConnectError(ConnectWithOptsError),
     ConnectionError(iroh::endpoint::ConnectionError),
     ExecuteError(ExecuteError),
@@ -223,6 +225,10 @@ impl Actor {
                     }
 
                     // No connection actor or it died - spawn a new one
+                    if self.connections.len() >= self.options.max_connections {
+                        handler(&ConnectResult::TooManyConnections).await.ok();
+                        continue;
+                    }
                     let (conn_tx, conn_rx) = mpsc::channel(100);
                     self.connections.insert(id, conn_tx.clone());
 

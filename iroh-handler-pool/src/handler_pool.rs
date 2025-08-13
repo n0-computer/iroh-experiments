@@ -14,6 +14,7 @@ use tokio_util::time::FutureExt;
 pub struct Options {
     pub idle_timeout: std::time::Duration,
     pub connect_timeout: std::time::Duration,
+    pub max_connections: usize,
     pub alpn: Vec<u8>,
 }
 
@@ -28,6 +29,8 @@ pub enum ConnectResult {
     Connected(Connection),
     /// Timeout during connect
     Timeout,
+    /// Too many connections
+    TooManyConnections,
     /// Error during connect
     ConnectError(ConnectError),
     /// Error during last execute
@@ -185,6 +188,10 @@ impl Actor {
                     }
 
                     // No connection actor or it died - spawn a new one
+                    if self.connections.len() >= self.options.max_connections {
+                        handler(&ConnectResult::TooManyConnections).await.ok();
+                        continue;
+                    }
                     let (conn_tx, conn_rx) = mpsc::channel(100);
                     self.connections.insert(id, conn_tx.clone());
 
