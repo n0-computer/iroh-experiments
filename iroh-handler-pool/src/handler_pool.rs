@@ -1,9 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use iroh::{
     Endpoint, NodeId,
     endpoint::{ConnectError, Connection},
 };
+use n0_future::boxed::BoxFuture;
 use snafu::Snafu;
 use tokio::{
     sync::mpsc,
@@ -13,16 +14,16 @@ use tokio_util::time::FutureExt;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
-    pub idle_timeout: std::time::Duration,
-    pub connect_timeout: std::time::Duration,
+    pub idle_timeout: Duration,
+    pub connect_timeout: Duration,
     pub max_connections: usize,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
-            idle_timeout: std::time::Duration::from_secs(5),
-            connect_timeout: std::time::Duration::from_secs(1),
+            idle_timeout: Duration::from_secs(5),
+            connect_timeout: Duration::from_secs(1),
             max_connections: 1024,
         }
     }
@@ -35,11 +36,7 @@ struct Context {
     alpn: Vec<u8>,
 }
 
-type BoxedHandler = Box<
-    dyn FnOnce(&ConnectResult) -> n0_future::boxed::BoxFuture<std::result::Result<(), ExecuteError>>
-        + Send
-        + 'static,
->;
+type BoxedHandler = Box<dyn FnOnce(&ConnectResult) -> BoxFuture<ExecuteResult> + Send + 'static>;
 
 pub enum ConnectResult {
     /// We got a connection
@@ -247,6 +244,8 @@ pub enum HandlerPoolError {
 #[derive(Debug, Snafu)]
 pub struct ExecuteError;
 
+pub type ExecuteResult = std::result::Result<(), ExecuteError>;
+
 pub struct HandlerPool {
     tx: mpsc::Sender<ActorMessage>,
 }
@@ -275,11 +274,10 @@ impl HandlerPool {
     ) -> std::result::Result<(), HandlerPoolError>
     where
         F: FnOnce(&ConnectResult) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = std::result::Result<(), ExecuteError>> + Send + 'static,
+        Fut: std::future::Future<Output = ExecuteResult> + Send + 'static,
     {
-        let handler = Box::new(move |conn: &ConnectResult| {
-            Box::pin(f(conn)) as n0_future::boxed::BoxFuture<std::result::Result<(), ExecuteError>>
-        });
+        let handler =
+            Box::new(move |conn: &ConnectResult| Box::pin(f(conn)) as BoxFuture<ExecuteResult>);
 
         self.tx
             .send(ActorMessage::Handle { id, handler })
