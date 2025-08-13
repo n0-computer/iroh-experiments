@@ -26,6 +26,7 @@ use tokio::{
 use tokio_util::time::FutureExt;
 use tracing::{error, trace};
 
+/// Configuration options for the 0rtt connection pool
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
     pub idle_timeout: Duration,
@@ -51,11 +52,17 @@ struct Context {
     owner: ConnectionPool0Rtt,
 }
 
-type BoxedHandler = Box<dyn FnOnce(&ConnectResult) -> BoxFuture<ExecuteResult> + Send + 'static>;
+type BoxedHandler =
+    Box<dyn FnOnce(&PoolConnectResult) -> BoxFuture<ExecuteResult> + Send + 'static>;
 
-pub enum ConnectResult {
-    /// We got a connection
-    Connected(Connection, broadcast::Receiver<bool>),
+pub type PoolConnectResult =
+    std::result::Result<(Connection, broadcast::Receiver<bool>), PoolConnectError>;
+
+/// Error when a connection can not be acquired
+///
+/// This includes the normal iroh connection errors as well as pool specific
+/// errors such as timeouts and connection limits.
+pub enum PoolConnectError {
     /// Timeout during connect
     Timeout,
     /// Too many connections
@@ -85,7 +92,7 @@ async fn connect(
     endpoint: &Endpoint,
     node_id: NodeId,
     alpn: &[u8],
-) -> (ConnectResult, Option<impl Future<Output = ()>>) {
+) -> (PoolConnectResult, Option<impl Future<Output = ()>>) {
     let connecting = match endpoint
         .connect_with_opts(node_id, alpn, ConnectOptions::default())
         .await
@@ -93,7 +100,7 @@ async fn connect(
         Ok(connecting) => connecting,
         Err(cause) => {
             trace!("Failed to connect to node {}: {}", node_id, cause);
-            return (ConnectResult::ConnectError(cause), None);
+            return (Err(PoolConnectError::ConnectError(cause)), None);
         }
     };
     let (conn, zero_rtt_accepted) = match connecting.into_0rtt() {
@@ -104,8 +111,8 @@ async fn connect(
         Err(connecting) => {
             trace!("Failed to connect using 0-RTT to node {}", node_id);
             let res = match connecting.await {
-                Err(cause) => ConnectResult::ConnectionError(cause),
-                Ok(connection) => ConnectResult::Connected(connection, accepted(true)),
+                Err(cause) => Err(PoolConnectError::ConnectionError(cause)),
+                Ok(connection) => Ok((connection, accepted(true))),
             };
             return (res, None);
         }
@@ -114,7 +121,7 @@ async fn connect(
     let complete = Box::pin(async move {
         tx.send(zero_rtt_accepted.await).ok();
     });
-    (ConnectResult::Connected(conn, rx), Some(complete))
+    (Ok((conn, rx)), Some(complete))
 }
 
 /// Run a connection actor for a single node
@@ -129,9 +136,9 @@ async fn run_connection_actor(
         .await
     {
         Ok((state, forwarder)) => (state, forwarder),
-        Err(_) => (ConnectResult::Timeout, None),
+        Err(_) => (Err(PoolConnectError::Timeout), None),
     };
-    if !matches!(state, ConnectResult::Connected(_, _)) {
+    if !matches!(state, Ok((_, _))) {
         context.owner.close(node_id).await.ok();
     }
     let mut tasks = JoinSet::new();
@@ -165,18 +172,18 @@ async fn run_connection_actor(
                     }
                     Some(Ok(Err(e))) => {
                         trace!("Task failed for node {}: {}", node_id, e);
-                        if let ConnectResult::Connected(conn, _) = state {
+                        if let Ok((conn, _)) = state {
                             conn.close(1u32.into(), b"");
                         }
-                        state = ConnectResult::ExecuteError(e);
+                        state = Err(PoolConnectError::ExecuteError(e));
                         context.owner.close(node_id).await.ok();
                     }
                     Some(Err(e)) => {
                         error!("Task panicked for node {}: {}", node_id, e);
-                        if let ConnectResult::Connected(conn, _) = state {
+                        if let Ok((conn, _)) = state {
                             conn.close(1u32.into(), b"");
                         }
-                        state = ConnectResult::JoinError(e);
+                        state = Err(PoolConnectError::JoinError(e));
                         context.owner.close(node_id).await.ok();
                     }
                     None => {
@@ -210,7 +217,7 @@ async fn run_connection_actor(
         }
     }
 
-    if let ConnectResult::Connected(conn, _) = state {
+    if let Ok((conn, _)) = state {
         conn.close(0u32.into(), b"");
     }
 
@@ -264,7 +271,9 @@ impl Actor {
 
                     // No connection actor or it died - spawn a new one
                     if self.connections.len() >= self.context.options.max_connections {
-                        handler(&ConnectResult::TooManyConnections).await.ok();
+                        handler(&Err(PoolConnectError::TooManyConnections))
+                            .await
+                            .ok();
                         continue;
                     }
                     let (conn_tx, conn_rx) = mpsc::channel(100);
@@ -292,16 +301,24 @@ impl Actor {
     }
 }
 
+/// Error when calling a fn on the [`ConnectionPool0Rtt`].
+///
+/// The only thing that can go wrong is that the connection pool is shut down.
 #[derive(Debug, Snafu)]
 pub enum ConnectionPoolError {
     Shutdown,
 }
 
+/// An error during the usage of the connection.
+///
+/// The connection pool will recreate the connection if a handler returns this
+/// error. If you don't want this, swallow the error in the handler.
 #[derive(Debug, Snafu)]
 pub struct ExecuteError;
 
-pub type ExecuteResult = std::result::Result<(), ExecuteError>;
+type ExecuteResult = std::result::Result<(), ExecuteError>;
 
+/// A connection pool for 0-RTT connections
 #[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct ConnectionPool0Rtt {
@@ -333,8 +350,8 @@ impl ConnectionPool0Rtt {
     /// Connect to a node and execute the given handler function
     ///
     /// The connection will either be a new connection or an existing one if it is already established.
-    /// If connection establishment succeeds, the handler will be called with a [`ConnectResult::Connected`].
-    /// If connection establishment fails, the handler will get passed a [`ConnectResult`] containing the error.
+    /// If connection establishment succeeds, the handler will be called with a [`Ok`].
+    /// If connection establishment fails, the handler will get passed a [`Err`] containing the error.
     ///
     /// The fn f is guaranteed to be called exactly once, unless the tokio runtime is shutting down.
     /// If the fn returns an error, it is assumed that the connection is no longer valid. This will cause
@@ -345,11 +362,11 @@ impl ConnectionPool0Rtt {
         f: F,
     ) -> std::result::Result<(), ConnectionPoolError>
     where
-        F: FnOnce(&ConnectResult) -> Fut + Send + 'static,
+        F: FnOnce(&PoolConnectResult) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ExecuteResult> + Send + 'static,
     {
         let handler =
-            Box::new(move |conn: &ConnectResult| Box::pin(f(conn)) as BoxFuture<ExecuteResult>);
+            Box::new(move |conn: &PoolConnectResult| Box::pin(f(conn)) as BoxFuture<ExecuteResult>);
 
         self.tx
             .send(ActorMessage::Handle { id, handler })

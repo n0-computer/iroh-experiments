@@ -22,6 +22,7 @@ use tokio::{
 };
 use tokio_util::time::FutureExt;
 
+/// Configuration options for the connection pool
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
     pub idle_timeout: Duration,
@@ -46,11 +47,14 @@ struct Context {
     alpn: Vec<u8>,
 }
 
-type BoxedHandler = Box<dyn FnOnce(&ConnectResult) -> BoxFuture<ExecuteResult> + Send + 'static>;
+type BoxedHandler =
+    Box<dyn FnOnce(&PoolConnectResult) -> BoxFuture<ExecuteResult> + Send + 'static>;
 
-pub enum ConnectResult {
-    /// We got a connection
-    Connected(Connection),
+/// Error when a connection can not be acquired
+///
+/// This includes the normal iroh connection errors as well as pool specific
+/// errors such as timeouts and connection limits.
+pub enum PoolConnectError {
     /// Timeout during connect
     Timeout,
     /// Too many connections
@@ -62,6 +66,8 @@ pub enum ConnectResult {
     /// Handler actor panicked
     JoinError(JoinError),
 }
+
+pub type PoolConnectResult = std::result::Result<Connection, PoolConnectError>;
 
 enum ActorMessage {
     Handle { id: NodeId, handler: BoxedHandler },
@@ -81,11 +87,11 @@ async fn run_connection_actor(
         .timeout(context.options.connect_timeout)
         .await
     {
-        Ok(Ok(conn)) => ConnectResult::Connected(conn),
-        Ok(Err(e)) => ConnectResult::ConnectError(e),
-        Err(_) => ConnectResult::Timeout,
+        Ok(Ok(conn)) => Ok(conn),
+        Ok(Err(e)) => Err(PoolConnectError::ConnectError(e)),
+        Err(_) => Err(PoolConnectError::Timeout),
     };
-    if !matches!(state, ConnectResult::Connected(_)) {
+    if !matches!(state, Ok(_)) {
         context.owner.close(node_id).await.ok();
     }
 
@@ -120,18 +126,18 @@ async fn run_connection_actor(
                     }
                     Some(Ok(Err(e))) => {
                         tracing::error!("Task failed for node {}: {}", node_id, e);
-                        if let ConnectResult::Connected(conn) = state {
+                        if let Ok(conn) = state {
                             conn.close(1u32.into(), b"");
                         }
-                        state = ConnectResult::ExecuteError(e);
+                        state = Err(PoolConnectError::ExecuteError(e));
                         let _ = context.owner.close(node_id).await;
                     }
                     Some(Err(e)) => {
                         tracing::error!("Task panicked for node {}: {}", node_id, e);
-                        if let ConnectResult::Connected(conn) = state {
+                        if let Ok(conn) = state {
                             conn.close(1u32.into(), b"");
                         }
-                        state = ConnectResult::JoinError(e);
+                        state = Err(PoolConnectError::JoinError(e));
                         let _ = context.owner.close(node_id).await;
                     }
                     None => {
@@ -162,7 +168,7 @@ async fn run_connection_actor(
         }
     }
 
-    if let ConnectResult::Connected(connection) = &state {
+    if let Ok(connection) = &state {
         connection.close(0u32.into(), b"");
     }
 
@@ -216,7 +222,9 @@ impl Actor {
 
                     // No connection actor or it died - spawn a new one
                     if self.connections.len() >= self.context.options.max_connections {
-                        handler(&ConnectResult::TooManyConnections).await.ok();
+                        handler(&Err(PoolConnectError::TooManyConnections))
+                            .await
+                            .ok();
                         continue;
                     }
                     let (conn_tx, conn_rx) = mpsc::channel(100);
@@ -245,17 +253,25 @@ impl Actor {
     }
 }
 
+/// Error when calling a fn on the [`ConnectionPool`].
+///
+/// The only thing that can go wrong is that the connection pool is shut down.
 #[derive(Debug, Snafu)]
 pub enum ConnectionPoolError {
     /// The connection pool has been shut down
     Shutdown,
 }
 
+/// An error during the usage of the connection.
+///
+/// The connection pool will recreate the connection if a handler returns this
+/// error. If you don't want this, swallow the error in the handler.
 #[derive(Debug, Snafu)]
 pub struct ExecuteError;
 
-pub type ExecuteResult = std::result::Result<(), ExecuteError>;
+type ExecuteResult = std::result::Result<(), ExecuteError>;
 
+/// A connection pool
 pub struct ConnectionPool {
     tx: mpsc::Sender<ActorMessage>,
 }
@@ -273,8 +289,8 @@ impl ConnectionPool {
     /// Connect to a node and execute the given handler function
     ///
     /// The connection will either be a new connection or an existing one if it is already established.
-    /// If connection establishment succeeds, the handler will be called with a [`ConnectResult::Connected`].
-    /// If connection establishment fails, the handler will get passed a [`ConnectResult`] containing the error.
+    /// If connection establishment succeeds, the handler will be called with a [`Ok`].
+    /// If connection establishment fails, the handler will get passed a [`Err`] containing the error.
     ///
     /// The fn f is guaranteed to be called exactly once, unless the tokio runtime is shutting down.
     pub async fn connect<F, Fut>(
@@ -283,11 +299,11 @@ impl ConnectionPool {
         f: F,
     ) -> std::result::Result<(), ConnectionPoolError>
     where
-        F: FnOnce(&ConnectResult) -> Fut + Send + 'static,
+        F: FnOnce(&PoolConnectResult) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ExecuteResult> + Send + 'static,
     {
         let handler =
-            Box::new(move |conn: &ConnectResult| Box::pin(f(conn)) as BoxFuture<ExecuteResult>);
+            Box::new(move |conn: &PoolConnectResult| Box::pin(f(conn)) as BoxFuture<ExecuteResult>);
 
         self.tx
             .send(ActorMessage::Handle { id, handler })
