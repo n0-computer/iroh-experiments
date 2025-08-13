@@ -14,7 +14,7 @@ use iroh::{
     Endpoint, NodeId,
     endpoint::{ConnectError, Connection},
 };
-use n0_future::boxed::BoxFuture;
+use n0_future::{MaybeFuture, boxed::BoxFuture};
 use snafu::Snafu;
 use tokio::{
     sync::mpsc,
@@ -91,12 +91,14 @@ async fn run_connection_actor(
         Ok(Err(e)) => Err(PoolConnectError::ConnectError(e)),
         Err(_) => Err(PoolConnectError::Timeout),
     };
-    if !matches!(state, Ok(_)) {
-        context.owner.close(node_id).await.ok();
+    if state.is_err() {
+        if context.owner.close(node_id).await.is_err() {
+            return;
+        }
     }
 
     let mut tasks = JoinSet::new();
-    let idle_timer = tokio::time::sleep(context.options.idle_timeout);
+    let idle_timer = MaybeFuture::default();
     tokio::pin!(idle_timer);
 
     loop {
@@ -107,8 +109,8 @@ async fn run_connection_actor(
             handler = rx.recv() => {
                 match handler {
                     Some(handler) => {
-                        // Reset idle timer by creating a new one
-                        idle_timer.set(tokio::time::sleep(context.options.idle_timeout));
+                        // clear the idle timer
+                        idle_timer.as_mut().set_none();
                         tasks.spawn(handler(&state));
                     }
                     None => {
@@ -145,14 +147,19 @@ async fn run_connection_actor(
                     }
                 }
 
-                // If no tasks left and channel is closed, we can exit
-                if tasks.is_empty() && rx.is_closed() {
-                    break;
+                // We are idle
+                if tasks.is_empty() {
+                    // If the channel is closed, we can exit
+                    if rx.is_closed() {
+                        break;
+                    }
+                    // set the idle timer
+                    idle_timer.as_mut().set_future(tokio::time::sleep(context.options.idle_timeout));
                 }
             }
 
             // Idle timeout - request shutdown
-            _ = &mut idle_timer, if tasks.is_empty() => {
+            _ = &mut idle_timer => {
                 tracing::debug!("Connection to {} idle, requesting shutdown", node_id);
 
                 context.owner.close(node_id).await.ok();

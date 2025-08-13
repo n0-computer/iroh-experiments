@@ -17,7 +17,7 @@ use iroh::{
     Endpoint, NodeId,
     endpoint::{ConnectOptions, ConnectWithOptsError, Connection, ConnectionError},
 };
-use n0_future::boxed::BoxFuture;
+use n0_future::{MaybeFuture, boxed::BoxFuture};
 use snafu::Snafu;
 use tokio::{
     sync::{broadcast, mpsc},
@@ -92,7 +92,7 @@ async fn connect(
     endpoint: &Endpoint,
     node_id: NodeId,
     alpn: &[u8],
-) -> (PoolConnectResult, Option<impl Future<Output = ()>>) {
+) -> (PoolConnectResult, MaybeFuture<impl Future<Output = ()>>) {
     let connecting = match endpoint
         .connect_with_opts(node_id, alpn, ConnectOptions::default())
         .await
@@ -100,7 +100,10 @@ async fn connect(
         Ok(connecting) => connecting,
         Err(cause) => {
             trace!("Failed to connect to node {}: {}", node_id, cause);
-            return (Err(PoolConnectError::ConnectError(cause)), None);
+            return (
+                Err(PoolConnectError::ConnectError(cause)),
+                MaybeFuture::None,
+            );
         }
     };
     let (conn, zero_rtt_accepted) = match connecting.into_0rtt() {
@@ -114,14 +117,14 @@ async fn connect(
                 Err(cause) => Err(PoolConnectError::ConnectionError(cause)),
                 Ok(connection) => Ok((connection, accepted(true))),
             };
-            return (res, None);
+            return (res, MaybeFuture::None);
         }
     };
     let (tx, rx) = broadcast::channel(1);
     let complete = Box::pin(async move {
         tx.send(zero_rtt_accepted.await).ok();
     });
-    (Ok((conn, rx)), Some(complete))
+    (Ok((conn, rx)), MaybeFuture::Some(complete))
 }
 
 /// Run a connection actor for a single node
@@ -131,19 +134,22 @@ async fn run_connection_actor(
     context: Arc<Context>,
 ) {
     // Connect to the node
-    let (mut state, mut forwarder) = match connect(&context.endpoint, node_id, &context.alpn)
+    let (mut state, forwarder) = match connect(&context.endpoint, node_id, &context.alpn)
         .timeout(context.options.connect_timeout)
         .await
     {
         Ok((state, forwarder)) => (state, forwarder),
-        Err(_) => (Err(PoolConnectError::Timeout), None),
+        Err(_) => (Err(PoolConnectError::Timeout), MaybeFuture::None),
     };
-    if !matches!(state, Ok((_, _))) {
-        context.owner.close(node_id).await.ok();
+    if state.is_err() {
+        if context.owner.close(node_id).await.is_err() {
+            return;
+        }
     }
     let mut tasks = JoinSet::new();
-    let idle_timer = tokio::time::sleep(context.options.idle_timeout);
+    let idle_timer = MaybeFuture::default();
     tokio::pin!(idle_timer);
+    tokio::pin!(forwarder);
 
     loop {
         tokio::select! {
@@ -153,8 +159,7 @@ async fn run_connection_actor(
             handler = rx.recv() => {
                 match handler {
                     Some(handler) => {
-                        // Reset idle timer by creating a new one
-                        idle_timer.set(tokio::time::sleep(context.options.idle_timeout));
+                        idle_timer.as_mut().set_none();
                         tasks.spawn(handler(&state));
                     }
                     None => {
@@ -191,22 +196,26 @@ async fn run_connection_actor(
                     }
                 }
 
-                // If no tasks left and channel is closed, we can exit
-                if tasks.is_empty() && rx.is_closed() {
-                    break;
+                // We are idle
+                if tasks.is_empty() {
+                    // If the channel is closed, we can exit
+                    if rx.is_closed() {
+                        break;
+                    }
+                    // set the idle timer
+                    idle_timer.as_mut().set_future(tokio::time::sleep(context.options.idle_timeout));
                 }
             }
 
             // Idle timeout - request shutdown
-            _ = &mut idle_timer, if tasks.is_empty() => {
+            _ = &mut idle_timer => {
                 trace!("Connection to {} idle, requesting shutdown", node_id);
                 context.owner.close(node_id).await.ok();
                 // Don't break here - wait for main actor to close our channel
             }
 
-            _ = forwarder.as_mut().unwrap(), if forwarder.is_some() => {
-                forwarder = None;
-            }
+            // Poll the forwarder if we have one
+            _ = &mut forwarder => {}
         }
     }
 
