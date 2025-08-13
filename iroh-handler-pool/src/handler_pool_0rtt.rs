@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use iroh::{
     Endpoint, NodeId,
-    endpoint::{ConnectOptions, ConnectWithOptsError, Connection},
+    endpoint::{ConnectOptions, ConnectWithOptsError, Connection, ConnectionError},
 };
 use snafu::Snafu;
 use tokio::{
@@ -44,12 +44,19 @@ type BoxedHandler = Box<
 >;
 
 pub enum ConnectResult {
+    /// We got a connection
     Connected(Connection, broadcast::Receiver<bool>),
+    /// Timeout during connect
     Timeout,
+    /// Too many connections
     TooManyConnections,
+    /// Error in the first stage of connect
     ConnectError(ConnectWithOptsError),
-    ConnectionError(iroh::endpoint::ConnectionError),
+    /// Error in the second stage of connect
+    ConnectionError(ConnectionError),
+    /// Error during usage of the connection
     ExecuteError(ExecuteError),
+    /// Connection actor panicked
     JoinError(JoinError),
 }
 
