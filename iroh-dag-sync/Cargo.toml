@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iroh-blobs = "0.90"
-iroh-gossip = "0.90"
-iroh = "0.90"
-iroh-base = { version ="0.90", features = ["ticket"] }
+iroh-blobs = "0.93"
+iroh-gossip = "0.91"
+iroh = "0.91"
+iroh-base = { version ="0.91", features = ["ticket"] }
 iroh-car = "0.5.0"
 redb = "2.1.1"
 clap = { version = "4.5.7", features = ["derive"] }
