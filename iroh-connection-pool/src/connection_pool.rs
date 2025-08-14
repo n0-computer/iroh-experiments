@@ -243,6 +243,10 @@ impl Actor {
         self.idle.retain(|&x| x != id);
     }
 
+    fn pop_oldest_idle(&mut self) -> Option<NodeId> {
+        self.idle.pop_front()
+    }
+
     fn remove_connection(&mut self, id: NodeId) {
         self.connections.remove(&id);
         self.remove_idle(id);
@@ -266,8 +270,9 @@ impl Actor {
 
                     // No connection actor or it died - check limits
                     if self.connections.len() >= self.context.options.max_connections {
-                        if let Some(idle) = self.idle.pop_front() {
+                        if let Some(idle) = self.pop_oldest_idle() {
                             // remove the oldest idle connection to make room for one more
+                            trace!("removing oldest idle connection {}", idle);
                             self.connections.remove(&idle);
                         } else {
                             handler(Err(PoolConnectError::TooManyConnections))

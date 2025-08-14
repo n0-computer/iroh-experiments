@@ -166,10 +166,8 @@ async fn connection_pool_smoke() -> TestResult<()> {
     let msg = b"Hello, world!".to_vec();
     for id in &ids {
         let (cid1, res) = client.echo(*id, msg.clone()).await???;
-        println!("First response from {}: {:?}", cid1, res);
         assert_eq!(res, msg);
         let (cid2, res) = client.echo(*id, msg.clone()).await???;
-        println!("Second response from {}: {:?}", cid2, res);
         assert_eq!(res, msg);
         assert_eq!(cid1, cid2);
         connection_ids.insert(id, cid1);
@@ -180,6 +178,43 @@ async fn connection_pool_smoke() -> TestResult<()> {
         let (cid2, res) = client.echo(*id, msg.clone()).await???;
         assert_eq!(res, msg);
         assert_ne!(cid1, cid2);
+    }
+    Ok(())
+}
+
+/// Tests that idle connections are being reclaimed to make room if we hit the
+/// maximum connection limit.
+#[tokio::test]
+async fn connection_pool_idle() -> TestResult<()> {
+    let n = 32;
+    let filter = tracing_subscriber::EnvFilter::from_default_env();
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+    let nodes = echo_servers(n).await?;
+    let ids = nodes
+        .iter()
+        .map(|(addr, _)| addr.node_id)
+        .collect::<Vec<_>>();
+    // set up static discovery for all addrs
+    let discovery = StaticProvider::from_node_info(nodes.iter().map(|(addr, _)| addr.clone()));
+    // build a client endpoint that can resolve all the node ids
+    let endpoint = iroh::Endpoint::builder()
+        .discovery(discovery.clone())
+        .bind()
+        .await?;
+    let pool = ConnectionPool::new(
+        endpoint.clone(),
+        ECHO_ALPN,
+        Options {
+            idle_timeout: Duration::from_secs(100),
+            max_connections: 8,
+            ..test_options()
+        },
+    );
+    let client = EchoClient { pool };
+    let msg = b"Hello, world!".to_vec();
+    for id in &ids {
+        let (_, res) = client.echo(*id, msg.clone()).await???;
+        assert_eq!(res, msg);
     }
     Ok(())
 }
