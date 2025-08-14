@@ -17,10 +17,11 @@ use iroh::{
 use n0_future::{MaybeFuture, boxed::BoxFuture};
 use snafu::Snafu;
 use tokio::{
-    sync::mpsc,
+    sync::{mpsc, oneshot},
     task::{JoinError, JoinSet},
 };
 use tokio_util::time::FutureExt;
+use tracing::{debug, error, trace};
 
 /// Configuration options for the connection pool
 #[derive(Debug, Clone, Copy)]
@@ -47,24 +48,36 @@ struct Context {
     alpn: Vec<u8>,
 }
 
-type BoxedHandler =
-    Box<dyn FnOnce(&PoolConnectResult) -> BoxFuture<ExecuteResult> + Send + 'static>;
+type BoxedHandler = Box<dyn FnOnce(PoolConnectResult) -> BoxFuture<ExecuteResult> + Send + 'static>;
 
 /// Error when a connection can not be acquired
 ///
 /// This includes the normal iroh connection errors as well as pool specific
 /// errors such as timeouts and connection limits.
+#[derive(Debug, Clone)]
 pub enum PoolConnectError {
     /// Timeout during connect
     Timeout,
     /// Too many connections
     TooManyConnections,
     /// Error during connect
-    ConnectError(ConnectError),
+    ConnectError(Arc<ConnectError>),
     /// Error during last execute
-    ExecuteError(ExecuteError),
+    ExecuteError(Arc<ExecuteError>),
     /// Handler actor panicked
-    JoinError(JoinError),
+    JoinError(Arc<JoinError>),
+}
+
+impl std::fmt::Display for PoolConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PoolConnectError::Timeout => write!(f, "Connection timed out"),
+            PoolConnectError::TooManyConnections => write!(f, "Too many connections"),
+            PoolConnectError::ConnectError(e) => write!(f, "Connection error: {}", e),
+            PoolConnectError::ExecuteError(e) => write!(f, "Execution error: {}", e),
+            PoolConnectError::JoinError(e) => write!(f, "Join error: {}", e),
+        }
+    }
 }
 
 pub type PoolConnectResult = std::result::Result<Connection, PoolConnectError>;
@@ -88,11 +101,14 @@ async fn run_connection_actor(
         .await
     {
         Ok(Ok(conn)) => Ok(conn),
-        Ok(Err(e)) => Err(PoolConnectError::ConnectError(e)),
+        Ok(Err(e)) => Err(PoolConnectError::ConnectError(Arc::new(e))),
         Err(_) => Err(PoolConnectError::Timeout),
     };
-    if state.is_err() && context.owner.close(node_id).await.is_err() {
-        return;
+    if let Err(e) = &state {
+        debug!(%node_id, "Failed to connect {e:?}, requesting shutdown");
+        if context.owner.close(node_id).await.is_err() {
+            return;
+        }
     }
 
     let mut tasks = JoinSet::new();
@@ -107,9 +123,10 @@ async fn run_connection_actor(
             handler = rx.recv() => {
                 match handler {
                     Some(handler) => {
+                        trace!(%node_id, "Received new task");
                         // clear the idle timer
                         idle_timer.as_mut().set_none();
-                        tasks.spawn(handler(&state));
+                        tasks.spawn(handler(state.clone()));
                     }
                     None => {
                         // Channel closed - finish remaining tasks and exit
@@ -122,22 +139,22 @@ async fn run_connection_actor(
             Some(task_result) = tasks.join_next(), if !tasks.is_empty() => {
                 match task_result {
                     Ok(Ok(())) => {
-                        tracing::debug!("Task completed for node {}", node_id);
+                        debug!(%node_id, "Task completed");
                     }
                     Ok(Err(e)) => {
-                        tracing::error!("Task failed for node {}: {}", node_id, e);
+                        error!(%node_id, "Task failed: {}", e);
                         if let Ok(conn) = state {
                             conn.close(1u32.into(), b"error");
                         }
-                        state = Err(PoolConnectError::ExecuteError(e));
+                        state = Err(PoolConnectError::ExecuteError(Arc::new(e)));
                         let _ = context.owner.close(node_id).await;
                     }
                     Err(e) => {
-                        tracing::error!("Task panicked for node {}: {}", node_id, e);
+                        error!(%node_id, "Task panicked: {}", e);
                         if let Ok(conn) = state {
                             conn.close(1u32.into(), b"panic");
                         }
-                        state = Err(PoolConnectError::JoinError(e));
+                        state = Err(PoolConnectError::JoinError(Arc::new(e)));
                         let _ = context.owner.close(node_id).await;
                     }
                 }
@@ -155,8 +172,7 @@ async fn run_connection_actor(
 
             // Idle timeout - request shutdown
             _ = &mut idle_timer => {
-                tracing::debug!("Connection to {} idle, requesting shutdown", node_id);
-
+                debug!(%node_id, "Connection idle, requesting shutdown");
                 context.owner.close(node_id).await.ok();
                 // Don't break here - wait for main actor to close our channel
             }
@@ -166,7 +182,7 @@ async fn run_connection_actor(
     // Wait for remaining tasks to complete
     while let Some(task_result) = tasks.join_next().await {
         if let Err(e) = task_result {
-            tracing::error!("Task failed during shutdown for node {}: {}", node_id, e);
+            error!(%node_id, "Task failed during shutdown: {}", e);
         }
     }
 
@@ -174,7 +190,7 @@ async fn run_connection_actor(
         connection.close(0u32.into(), b"idle");
     }
 
-    tracing::debug!("Connection actor for {} shutting down", node_id);
+    debug!(%node_id, "Connection actor shutting down");
 }
 
 struct Actor {
@@ -224,7 +240,7 @@ impl Actor {
 
                     // No connection actor or it died - spawn a new one
                     if self.connections.len() >= self.context.options.max_connections {
-                        handler(&Err(PoolConnectError::TooManyConnections))
+                        handler(Err(PoolConnectError::TooManyConnections))
                             .await
                             .ok();
                         continue;
@@ -273,7 +289,14 @@ pub struct ExecuteError;
 
 type ExecuteResult = std::result::Result<(), ExecuteError>;
 
+impl From<PoolConnectError> for ExecuteError {
+    fn from(_: PoolConnectError) -> Self {
+        ExecuteError
+    }
+}
+
 /// A connection pool
+#[derive(Debug, Clone)]
 pub struct ConnectionPool {
     tx: mpsc::Sender<ActorMessage>,
 }
@@ -301,11 +324,11 @@ impl ConnectionPool {
         f: F,
     ) -> std::result::Result<(), ConnectionPoolError>
     where
-        F: FnOnce(&PoolConnectResult) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = ExecuteResult> + Send + 'static,
+        F: FnOnce(PoolConnectResult) -> Fut + Send + 'static,
+        Fut: Future<Output = ExecuteResult> + Send + 'static,
     {
         let handler =
-            Box::new(move |conn: &PoolConnectResult| Box::pin(f(conn)) as BoxFuture<ExecuteResult>);
+            Box::new(move |conn: PoolConnectResult| Box::pin(f(conn)) as BoxFuture<ExecuteResult>);
 
         self.tx
             .send(ActorMessage::Handle { id, handler })
@@ -313,6 +336,37 @@ impl ConnectionPool {
             .map_err(|_| ConnectionPoolError::Shutdown)?;
 
         Ok(())
+    }
+
+    pub async fn with_connection<F, Fut, I, E>(
+        &self,
+        id: NodeId,
+        f: F,
+    ) -> Result<Result<Result<I, E>, PoolConnectError>, ConnectionPoolError>
+    where
+        F: FnOnce(Connection) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<I, E>> + Send + 'static,
+        I: Send + 'static,
+        E: Send + 'static,
+    {
+        let (tx, rx) = oneshot::channel();
+        self.connect(id, |conn| async move {
+            let (res, ret) = match conn {
+                Ok(connection) => {
+                    let res = f(connection).await;
+                    let ret = match &res {
+                        Ok(_) => Ok(()),
+                        Err(_) => Err(ExecuteError),
+                    };
+                    (Ok(res), ret)
+                }
+                Err(e) => (Err(e), Err(ExecuteError)),
+            };
+            tx.send(res).ok();
+            ret
+        })
+        .await?;
+        rx.await.map_err(|_| ConnectionPoolError::Shutdown)
     }
 
     /// Close an existing connection, if it exists
