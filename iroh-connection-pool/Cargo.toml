@@ -1,0 +1,18 @@
+[package]
+name = "iroh-connection-pool"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+iroh = { version = "0.91.1", git = "https://github.com/n0-computer/iroh", branch = "connection-speed-test" }
+n0-future = "0.2.0"
+snafu = "0.8.6"
+tokio = "1.45"
+tokio-util = { version = "0.7", features = ["time"] }
+tracing = "0.1.41"
+
+[dev-dependencies]
+anyhow = "1.0.99"
+n0-snafu = "0.2.1"
+testresult = "0.4.1"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
