@@ -8,7 +8,11 @@
 //!
 //! It is important that you use the connection only in the future passed to
 //! connect, and don't clone it out of the future.
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+    time::Duration,
+};
 
 use iroh::{
     Endpoint, NodeId,
@@ -17,7 +21,7 @@ use iroh::{
 use n0_future::{MaybeFuture, boxed::BoxFuture};
 use snafu::Snafu;
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{mpsc, mpsc::error::SendError as TokioSendError, oneshot},
     task::{JoinError, JoinSet},
 };
 use tokio_util::time::FutureExt;
@@ -84,6 +88,7 @@ pub type PoolConnectResult = std::result::Result<Connection, PoolConnectError>;
 
 enum ActorMessage {
     Handle { id: NodeId, handler: BoxedHandler },
+    ConnectionIdle { id: NodeId },
     ConnectionShutdown { id: NodeId },
 }
 
@@ -165,6 +170,10 @@ async fn run_connection_actor(
                     if rx.is_closed() {
                         break;
                     }
+                    if context.owner.idle(node_id).await.is_err() {
+                        // If we can't notify the pool, we are shutting down
+                        break;
+                    }
                     // set the idle timer
                     idle_timer.as_mut().set_future(tokio::time::sleep(context.options.idle_timeout));
                 }
@@ -197,6 +206,9 @@ struct Actor {
     rx: mpsc::Receiver<ActorMessage>,
     connections: HashMap<NodeId, mpsc::Sender<BoxedHandler>>,
     context: Arc<Context>,
+    // idle set (most recent last)
+    // todo: use a better data structure if this becomes a performance issue
+    idle: VecDeque<NodeId>,
 }
 
 impl Actor {
@@ -210,6 +222,7 @@ impl Actor {
             Self {
                 rx,
                 connections: HashMap::new(),
+                idle: VecDeque::new(),
                 context: Arc::new(Context {
                     options,
                     alpn: alpn.to_vec(),
@@ -221,29 +234,47 @@ impl Actor {
         )
     }
 
+    fn add_idle(&mut self, id: NodeId) {
+        self.remove_idle(id);
+        self.idle.push_back(id);
+    }
+
+    fn remove_idle(&mut self, id: NodeId) {
+        self.idle.retain(|&x| x != id);
+    }
+
+    fn remove_connection(&mut self, id: NodeId) {
+        self.connections.remove(&id);
+        self.remove_idle(id);
+    }
+
     pub async fn run(mut self) {
         while let Some(msg) = self.rx.recv().await {
             match msg {
                 ActorMessage::Handle { id, mut handler } => {
+                    self.remove_idle(id);
                     // Try to send to existing connection actor
                     if let Some(conn_tx) = self.connections.get(&id) {
-                        if let Err(tokio::sync::mpsc::error::SendError(e)) =
-                            conn_tx.send(handler).await
-                        {
+                        if let Err(TokioSendError(e)) = conn_tx.send(handler).await {
                             handler = e;
                         } else {
                             continue;
                         }
                         // Connection actor died, remove it
-                        self.connections.remove(&id);
+                        self.remove_connection(id);
                     }
 
-                    // No connection actor or it died - spawn a new one
+                    // No connection actor or it died - check limits
                     if self.connections.len() >= self.context.options.max_connections {
-                        handler(Err(PoolConnectError::TooManyConnections))
-                            .await
-                            .ok();
-                        continue;
+                        if let Some(idle) = self.idle.pop_front() {
+                            // remove the oldest idle connection to make room for one more
+                            self.connections.remove(&idle);
+                        } else {
+                            handler(Err(PoolConnectError::TooManyConnections))
+                                .await
+                                .ok();
+                            continue;
+                        }
                     }
                     let (conn_tx, conn_rx) = mpsc::channel(100);
                     self.connections.insert(id, conn_tx.clone());
@@ -254,17 +285,18 @@ impl Actor {
 
                     // Send the handler to the new actor
                     if conn_tx.send(handler).await.is_err() {
-                        tracing::error!(
-                            "Failed to send handler to new connection actor for {}",
-                            id
-                        );
+                        error!(%id, "Failed to send handler to new connection actor");
                         self.connections.remove(&id);
                     }
                 }
+                ActorMessage::ConnectionIdle { id } => {
+                    self.add_idle(id);
+                    trace!(%id, "connection idle");
+                }
                 ActorMessage::ConnectionShutdown { id } => {
                     // Remove the connection from our map - this closes the channel
-                    self.connections.remove(&id);
-                    tracing::debug!("Approved shutdown for connection {}", id);
+                    self.remove_connection(id);
+                    trace!(%id, "removed connection");
                 }
             }
         }
@@ -376,6 +408,17 @@ impl ConnectionPool {
     pub async fn close(&self, id: NodeId) -> std::result::Result<(), ConnectionPoolError> {
         self.tx
             .send(ActorMessage::ConnectionShutdown { id })
+            .await
+            .map_err(|_| ConnectionPoolError::Shutdown)?;
+        Ok(())
+    }
+
+    /// Notify the connection pool that a connection is idle.
+    ///
+    /// Should only be called from connection handlers.
+    pub(crate) async fn idle(&self, id: NodeId) -> std::result::Result<(), ConnectionPoolError> {
+        self.tx
+            .send(ActorMessage::ConnectionIdle { id })
             .await
             .map_err(|_| ConnectionPoolError::Shutdown)?;
         Ok(())
