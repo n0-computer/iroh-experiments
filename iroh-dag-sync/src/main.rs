@@ -123,8 +123,8 @@ async fn main() -> anyhow::Result<()> {
         args::SubCommand::Node(args) => {
             let endpoint =
                 create_endpoint(args.net.iroh_ipv4_addr, args.net.iroh_ipv6_addr).await?;
-            endpoint.home_relay().initialized().await?;
-            let addr = endpoint.node_addr().initialized().await?;
+            endpoint.home_relay().initialized().await;
+            let addr = endpoint.node_addr().initialized().await;
             println!("Node id:\n{}", addr.node_id);
             println!(
                 "Listening on {:#?}, {:#?}",

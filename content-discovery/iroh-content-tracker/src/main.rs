@@ -47,7 +47,7 @@ macro_rules! log {
 async fn await_relay_region(endpoint: &Endpoint) -> anyhow::Result<()> {
     let t0 = Instant::now();
     loop {
-        let addr = endpoint.node_addr().initialized().await?;
+        let addr = endpoint.node_addr().initialized().await;
         if addr.relay_url().is_some() {
             break;
         }
@@ -113,7 +113,7 @@ async fn server(args: Args) -> anyhow::Result<()> {
     let db = Tracker::new(options, endpoint.clone())?;
     db.dump().await?;
     await_relay_region(&endpoint).await?;
-    let addr = endpoint.node_addr().initialized().await?;
+    let addr = endpoint.node_addr().initialized().await;
     println!("tracker addr: {}\n", addr.node_id);
     info!("listening on {:?}", addr);
     // let db2 = db.clone();
