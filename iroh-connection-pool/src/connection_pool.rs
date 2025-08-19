@@ -9,7 +9,10 @@
 //! It is important that you use the connection only in the future passed to
 //! connect, and don't clone it out of the future.
 use std::{
-    collections::{HashMap, VecDeque}, ops::Deref, sync::Arc, time::Duration
+    collections::{HashMap, VecDeque},
+    ops::Deref,
+    sync::Arc,
+    time::Duration,
 };
 
 use iroh::{
@@ -19,7 +22,11 @@ use iroh::{
 use n0_future::MaybeFuture;
 use snafu::Snafu;
 use tokio::{
-    sync::{mpsc::{self, error::SendError as TokioSendError}, oneshot, OwnedSemaphorePermit},
+    sync::{
+        OwnedSemaphorePermit,
+        mpsc::{self, error::SendError as TokioSendError},
+        oneshot,
+    },
     task::JoinError,
 };
 use tokio_util::time::FutureExt;
@@ -80,14 +87,14 @@ struct Context {
 /// errors such as timeouts and connection limits.
 #[derive(Debug, Clone)]
 pub enum PoolConnectError {
+    /// Connection pool is shut down
+    Shutdown,
     /// Timeout during connect
     Timeout,
     /// Too many connections
     TooManyConnections,
     /// Error during connect
     ConnectError(Arc<ConnectError>),
-    /// Error during last execute
-    ExecuteError(Arc<ExecuteError>),
     /// Handler actor panicked
     JoinError(Arc<JoinError>),
 }
@@ -95,10 +102,10 @@ pub enum PoolConnectError {
 impl std::fmt::Display for PoolConnectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            PoolConnectError::Shutdown => write!(f, "Connection pool is shut down"),
             PoolConnectError::Timeout => write!(f, "Connection timed out"),
             PoolConnectError::TooManyConnections => write!(f, "Too many connections"),
             PoolConnectError::ConnectError(e) => write!(f, "Connection error: {}", e),
-            PoolConnectError::ExecuteError(e) => write!(f, "Execution error: {}", e),
             PoolConnectError::JoinError(e) => write!(f, "Join error: {}", e),
         }
     }
@@ -286,8 +293,7 @@ impl Actor {
                             trace!("removing oldest idle connection {}", idle);
                             self.connections.remove(&idle);
                         } else {
-                            msg.tx.send(Err(PoolConnectError::TooManyConnections))
-                                .ok();
+                            msg.tx.send(Err(PoolConnectError::TooManyConnections)).ok();
                             continue;
                         }
                     }
@@ -327,19 +333,6 @@ pub enum ConnectionPoolError {
     Shutdown,
 }
 
-/// An error during the usage of the connection.
-///
-/// The connection pool will recreate the connection if a handler returns this
-/// error. If you don't want this, swallow the error in the handler.
-#[derive(Debug, Snafu)]
-pub struct ExecuteError;
-
-impl From<PoolConnectError> for ExecuteError {
-    fn from(_: PoolConnectError) -> Self {
-        ExecuteError
-    }
-}
-
 /// A connection pool
 #[derive(Debug, Clone)]
 pub struct ConnectionPool {
@@ -359,14 +352,13 @@ impl ConnectionPool {
     pub async fn connect(
         &self,
         id: NodeId,
-    ) -> std::result::Result<std::result::Result<ConnectionRef, PoolConnectError>, ConnectionPoolError>
-    {
+    ) -> std::result::Result<ConnectionRef, PoolConnectError> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(ActorMessage::RequestRef(RequestRef { id, tx }))
             .await
-            .map_err(|_| ConnectionPoolError::Shutdown)?;
-        Ok(rx.await.map_err(|_| ConnectionPoolError::Shutdown)?)
+            .map_err(|_| PoolConnectError::Shutdown)?;
+        Ok(rx.await.map_err(|_| PoolConnectError::Shutdown)??)
     }
 
     /// Close an existing connection, if it exists

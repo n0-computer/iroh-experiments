@@ -11,7 +11,7 @@ use n0_snafu::ResultExt;
 use testresult::TestResult;
 use tracing::trace;
 
-use crate::connection_pool::{ConnectionPool, ConnectionPoolError, Options, PoolConnectError};
+use crate::connection_pool::{ConnectionPool, Options, PoolConnectError};
 
 const ECHO_ALPN: &[u8] = b"echo";
 
@@ -92,19 +92,12 @@ impl EchoClient {
         &self,
         id: NodeId,
         text: Vec<u8>,
-    ) -> Result<
-        Result<Result<(usize, Vec<u8>), n0_snafu::Error>, PoolConnectError>,
-        ConnectionPoolError,
-    > {
+    ) -> Result<Result<(usize, Vec<u8>), n0_snafu::Error>, PoolConnectError> {
         let conn = self.pool.connect(id).await?;
-        let conn = match conn {
-            Ok(conn) => conn,
-            Err(e) => return Ok(Err(e)),
-        };
         let id = conn.stable_id();
         match echo_client(&conn, &text).await {
-            Ok(res) => Ok(Ok(Ok((id, res)))),
-            Err(e) => Ok(Ok(Err(e))),
+            Ok(res) => Ok(Ok((id, res))),
+            Err(e) => Ok(Err(e)),
         }
     }
 }
@@ -112,7 +105,10 @@ impl EchoClient {
 #[tokio::test]
 async fn connection_pool_errors() -> TestResult<()> {
     let filter = tracing_subscriber::EnvFilter::from_default_env();
-    tracing_subscriber::fmt().with_env_filter(filter).try_init().ok();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .try_init()
+        .ok();
     // set up static discovery for all addrs
     let discovery = StaticProvider::new();
     let endpoint = iroh::Endpoint::builder()
@@ -123,7 +119,7 @@ async fn connection_pool_errors() -> TestResult<()> {
     let client = EchoClient { pool };
     {
         let non_existing = SecretKey::from_bytes(&[0; 32]).public();
-        let res = client.echo(non_existing, b"Hello, world!".to_vec()).await?;
+        let res = client.echo(non_existing, b"Hello, world!".to_vec()).await;
         // trying to connect to a non-existing id will fail with ConnectError
         // because we don't have any information about the node
         assert!(matches!(res, Err(PoolConnectError::ConnectError(_))));
@@ -140,9 +136,7 @@ async fn connection_pool_errors() -> TestResult<()> {
         });
         // trying to connect to an id for which we have info, but the other
         // end is not listening, will lead to a timeout.
-        let res = client
-            .echo(non_listening, b"Hello, world!".to_vec())
-            .await?;
+        let res = client.echo(non_listening, b"Hello, world!".to_vec()).await;
         assert!(matches!(res, Err(PoolConnectError::Timeout)));
     }
     Ok(())
@@ -151,7 +145,10 @@ async fn connection_pool_errors() -> TestResult<()> {
 #[tokio::test]
 async fn connection_pool_smoke() -> TestResult<()> {
     let filter = tracing_subscriber::EnvFilter::from_default_env();
-    tracing_subscriber::fmt().with_env_filter(filter).try_init().ok();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .try_init()
+        .ok();
     let n = 32;
     let nodes = echo_servers(n).await?;
     let ids = nodes
@@ -170,9 +167,9 @@ async fn connection_pool_smoke() -> TestResult<()> {
     let mut connection_ids = BTreeMap::new();
     let msg = b"Hello, world!".to_vec();
     for id in &ids {
-        let (cid1, res) = client.echo(*id, msg.clone()).await???;
+        let (cid1, res) = client.echo(*id, msg.clone()).await??;
         assert_eq!(res, msg);
-        let (cid2, res) = client.echo(*id, msg.clone()).await???;
+        let (cid2, res) = client.echo(*id, msg.clone()).await??;
         assert_eq!(res, msg);
         assert_eq!(cid1, cid2);
         connection_ids.insert(id, cid1);
@@ -180,7 +177,7 @@ async fn connection_pool_smoke() -> TestResult<()> {
     tokio::time::sleep(Duration::from_millis(1000)).await;
     for id in &ids {
         let cid1 = *connection_ids.get(id).expect("Connection ID not found");
-        let (cid2, res) = client.echo(*id, msg.clone()).await???;
+        let (cid2, res) = client.echo(*id, msg.clone()).await??;
         assert_eq!(res, msg);
         assert_ne!(cid1, cid2);
     }
@@ -192,7 +189,10 @@ async fn connection_pool_smoke() -> TestResult<()> {
 #[tokio::test]
 async fn connection_pool_idle() -> TestResult<()> {
     let filter = tracing_subscriber::EnvFilter::from_default_env();
-    tracing_subscriber::fmt().with_env_filter(filter).try_init().ok();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .try_init()
+        .ok();
     let n = 32;
     let nodes = echo_servers(n).await?;
     let ids = nodes
@@ -218,7 +218,7 @@ async fn connection_pool_idle() -> TestResult<()> {
     let client = EchoClient { pool };
     let msg = b"Hello, world!".to_vec();
     for id in &ids {
-        let (_, res) = client.echo(*id, msg.clone()).await???;
+        let (_, res) = client.echo(*id, msg.clone()).await??;
         assert_eq!(res, msg);
     }
     Ok(())
