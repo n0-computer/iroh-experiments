@@ -10,11 +10,7 @@
 //! connect, and don't clone it out of the future.
 use std::{
     collections::{HashMap, VecDeque},
-    ops::Deref,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::Arc,
     time::Duration,
 };
 
@@ -22,18 +18,19 @@ use iroh::{
     Endpoint, NodeId,
     endpoint::{ConnectError, Connection},
 };
-use n0_future::{MaybeFuture, Stream, StreamExt};
+use n0_future::{MaybeFuture, StreamExt};
 use snafu::Snafu;
 use tokio::{
     sync::{
-        Notify,
         mpsc::{self, error::SendError as TokioSendError},
         oneshot,
     },
     task::JoinError,
 };
 use tokio_util::time::FutureExt as TimeFutureExt;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
+
+use crate::{ConnectionCounter, ConnectionRef};
 
 /// Configuration options for the connection pool
 #[derive(Debug, Clone, Copy)]
@@ -49,30 +46,6 @@ impl Default for Options {
             idle_timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(1),
             max_connections: 1024,
-        }
-    }
-}
-
-/// A reference to a connection that is owned by a connection pool.
-#[derive(Debug)]
-pub struct ConnectionRef {
-    connection: iroh::endpoint::Connection,
-    _permit: OneConnection,
-}
-
-impl Deref for ConnectionRef {
-    type Target = iroh::endpoint::Connection;
-
-    fn deref(&self) -> &Self::Target {
-        &self.connection
-    }
-}
-
-impl ConnectionRef {
-    fn new(connection: iroh::endpoint::Connection, counter: OneConnection) -> Self {
-        Self {
-            connection,
-            _permit: counter,
         }
     }
 }
@@ -125,67 +98,6 @@ enum ActorMessage {
 struct RequestRef {
     id: NodeId,
     tx: oneshot::Sender<Result<ConnectionRef, PoolConnectError>>,
-}
-
-#[derive(Debug)]
-struct ConnectionCounterInner {
-    count: AtomicUsize,
-    notify: Notify,
-}
-
-#[derive(Debug, Clone)]
-struct ConnectionCounter {
-    inner: Arc<ConnectionCounterInner>,
-}
-
-impl ConnectionCounter {
-    fn new() -> Self {
-        Self {
-            inner: Arc::new(ConnectionCounterInner {
-                count: Default::default(),
-                notify: Notify::new(),
-            }),
-        }
-    }
-
-    fn get_one(&self) -> OneConnection {
-        self.inner.count.fetch_add(1, Ordering::SeqCst);
-        OneConnection {
-            inner: self.inner.clone(),
-        }
-    }
-
-    fn is_idle(&self) -> bool {
-        self.inner.count.load(Ordering::SeqCst) == 0
-    }
-
-    /// Infinite stream that yields when the connection is briefly idle.
-    ///
-    /// Note that you still have to check if the connection is still idle when
-    /// you get the notification.
-    ///
-    /// Also note that this stream is triggered on [OneConnection::drop], so it
-    /// won't trigger initially even though a [ConnectionCounter] starts up as
-    /// idle.
-    fn idle_stream(self) -> impl Stream<Item = ()> {
-        n0_future::stream::unfold(self, |c| async move {
-            c.inner.notify.notified().await;
-            Some(((), c))
-        })
-    }
-}
-
-#[derive(Debug)]
-struct OneConnection {
-    inner: Arc<ConnectionCounterInner>,
-}
-
-impl Drop for OneConnection {
-    fn drop(&mut self) {
-        if self.inner.count.fetch_sub(1, Ordering::SeqCst) == 1 {
-            self.inner.notify.notify_waiters();
-        }
-    }
 }
 
 /// Run a connection actor for a single node
@@ -270,11 +182,7 @@ async fn run_connection_actor(
     }
 
     if let Ok(connection) = state {
-        let reason = if counter.inner.count.load(Ordering::SeqCst) > 0 {
-            b"drop"
-        } else {
-            b"idle"
-        };
+        let reason = if counter.is_idle() { b"idle" } else { b"drop" };
         connection.close(0u32.into(), reason);
     }
 
@@ -411,6 +319,10 @@ impl ConnectionPool {
         Self { tx }
     }
 
+    /// Returns either a fresh connection or a reference to an existing one.
+    ///
+    /// This is guaranteed to return after approximately [Options::connect_timeout]
+    /// with either an error or a connection.
     pub async fn connect(
         &self,
         id: NodeId,
