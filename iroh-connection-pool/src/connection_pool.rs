@@ -106,8 +106,8 @@ impl std::fmt::Display for PoolConnectError {
             PoolConnectError::Shutdown => write!(f, "Connection pool is shut down"),
             PoolConnectError::Timeout => write!(f, "Connection timed out"),
             PoolConnectError::TooManyConnections => write!(f, "Too many connections"),
-            PoolConnectError::ConnectError(e) => write!(f, "Connection error: {}", e),
-            PoolConnectError::JoinError(e) => write!(f, "Join error: {}", e),
+            PoolConnectError::ConnectError(e) => write!(f, "Connection error: {e}"),
+            PoolConnectError::JoinError(e) => write!(f, "Join error: {e}"),
         }
     }
 }
@@ -357,7 +357,7 @@ impl ConnectionPool {
             .send(ActorMessage::RequestRef(RequestRef { id, tx }))
             .await
             .map_err(|_| PoolConnectError::Shutdown)?;
-        Ok(rx.await.map_err(|_| PoolConnectError::Shutdown)??)
+        rx.await.map_err(|_| PoolConnectError::Shutdown)?
     }
 
     /// Close an existing connection, if it exists
