@@ -11,7 +11,10 @@
 use std::{
     collections::{HashMap, VecDeque},
     ops::Deref,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -19,18 +22,18 @@ use iroh::{
     Endpoint, NodeId,
     endpoint::{ConnectError, Connection},
 };
-use n0_future::MaybeFuture;
+use n0_future::{MaybeFuture, Stream, StreamExt};
 use snafu::Snafu;
 use tokio::{
     sync::{
-        OwnedSemaphorePermit,
+        Notify,
         mpsc::{self, error::SendError as TokioSendError},
         oneshot,
     },
     task::JoinError,
 };
-use tokio_util::time::FutureExt;
-use tracing::{debug, error, trace};
+use tokio_util::time::FutureExt as TimeFutureExt;
+use tracing::{debug, error, info, trace};
 
 /// Configuration options for the connection pool
 #[derive(Debug, Clone, Copy)]
@@ -54,7 +57,7 @@ impl Default for Options {
 #[derive(Debug)]
 pub struct ConnectionRef {
     connection: iroh::endpoint::Connection,
-    _permit: OwnedSemaphorePermit,
+    _permit: OneConnection,
 }
 
 impl Deref for ConnectionRef {
@@ -66,10 +69,10 @@ impl Deref for ConnectionRef {
 }
 
 impl ConnectionRef {
-    fn new(connection: iroh::endpoint::Connection, permit: OwnedSemaphorePermit) -> Self {
+    fn new(connection: iroh::endpoint::Connection, counter: OneConnection) -> Self {
         Self {
             connection,
-            _permit: permit,
+            _permit: counter,
         }
     }
 }
@@ -124,6 +127,67 @@ struct RequestRef {
     tx: oneshot::Sender<Result<ConnectionRef, PoolConnectError>>,
 }
 
+#[derive(Debug)]
+struct ConnectionCounterInner {
+    count: AtomicUsize,
+    notify: Notify,
+}
+
+#[derive(Debug, Clone)]
+struct ConnectionCounter {
+    inner: Arc<ConnectionCounterInner>,
+}
+
+impl ConnectionCounter {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(ConnectionCounterInner {
+                count: Default::default(),
+                notify: Notify::new(),
+            }),
+        }
+    }
+
+    fn get_one(&self) -> OneConnection {
+        self.inner.count.fetch_add(1, Ordering::SeqCst);
+        OneConnection {
+            inner: self.inner.clone(),
+        }
+    }
+
+    fn is_idle(&self) -> bool {
+        self.inner.count.load(Ordering::SeqCst) == 0
+    }
+
+    /// Infinite stream that yields when the connection is briefly idle.
+    ///
+    /// Note that you still have to check if the connection is still idle when
+    /// you get the notification.
+    ///
+    /// Also note that this stream is triggered on [OneConnection::drop], so it
+    /// won't trigger initially even though a [ConnectionCounter] starts up as
+    /// idle.
+    fn idle_stream(self) -> impl Stream<Item = ()> {
+        n0_future::stream::unfold(self, |c| async move {
+            c.inner.notify.notified().await;
+            Some(((), c))
+        })
+    }
+}
+
+#[derive(Debug)]
+struct OneConnection {
+    inner: Arc<ConnectionCounterInner>,
+}
+
+impl Drop for OneConnection {
+    fn drop(&mut self) {
+        if self.inner.count.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.inner.notify.notify_waiters();
+        }
+    }
+}
+
 /// Run a connection actor for a single node
 async fn run_connection_actor(
     node_id: NodeId,
@@ -147,10 +211,11 @@ async fn run_connection_actor(
             return;
         }
     }
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(u32::MAX as usize));
+    let counter = ConnectionCounter::new();
     let idle_timer = MaybeFuture::default();
-    let idle_fut = MaybeFuture::default();
-    tokio::pin!(idle_timer, idle_fut);
+    let idle_stream = counter.clone().idle_stream();
+
+    tokio::pin!(idle_timer, idle_stream);
 
     loop {
         tokio::select! {
@@ -161,15 +226,9 @@ async fn run_connection_actor(
                 match handler {
                     Some(RequestRef { id, tx }) => {
                         assert!(id == node_id, "Not for me!");
-                        trace!(%node_id, "Received new request");
                         match &state {
                             Ok(state) => {
-                                // first acquire a permit for the op, then aquire all permits for idle
-                                let permit = semaphore.clone().acquire_owned().await.expect("semaphore closed");
-                                let res = ConnectionRef::new(state.clone(), permit);
-                                if idle_fut.is_none() {
-                                    idle_fut.as_mut().set_future(semaphore.clone().acquire_many_owned(u32::MAX));
-                                }
+                                let res = ConnectionRef::new(state.clone(), counter.get_one());
 
                                 // clear the idle timer
                                 idle_timer.as_mut().set_none();
@@ -187,7 +246,10 @@ async fn run_connection_actor(
                 }
             }
 
-            _ = &mut idle_fut => {
+            _ = idle_stream.next() => {
+                if !counter.is_idle() {
+                    continue;
+                };
                 // notify the pool that we are idle.
                 trace!(%node_id, "Idle");
                 if context.owner.idle(node_id).await.is_err() {
@@ -200,7 +262,7 @@ async fn run_connection_actor(
 
             // Idle timeout - request shutdown
             _ = &mut idle_timer => {
-                debug!(%node_id, "Connection idle, requesting shutdown");
+                trace!(%node_id, "Idle timer expired, requesting shutdown");
                 context.owner.close(node_id).await.ok();
                 // Don't break here - wait for main actor to close our channel
             }
@@ -208,15 +270,15 @@ async fn run_connection_actor(
     }
 
     if let Ok(connection) = state {
-        let reason = if semaphore.available_permits() == u32::MAX as usize {
-            "idle"
+        let reason = if counter.inner.count.load(Ordering::SeqCst) > 0 {
+            b"drop"
         } else {
-            "drop"
+            b"idle"
         };
-        connection.close(0u32.into(), reason.as_bytes());
+        connection.close(0u32.into(), reason);
     }
 
-    debug!(%node_id, "Connection actor shutting down");
+    trace!(%node_id, "Connection actor shutting down");
 }
 
 struct Actor {
