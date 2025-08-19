@@ -9,20 +9,18 @@
 //! It is important that you use the connection only in the future passed to
 //! connect, and don't clone it out of the future.
 use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-    time::Duration,
+    collections::{HashMap, VecDeque}, ops::Deref, sync::Arc, time::Duration
 };
 
 use iroh::{
     Endpoint, NodeId,
     endpoint::{ConnectError, Connection},
 };
-use n0_future::{MaybeFuture, boxed::BoxFuture};
+use n0_future::MaybeFuture;
 use snafu::Snafu;
 use tokio::{
-    sync::{mpsc, mpsc::error::SendError as TokioSendError, oneshot},
-    task::{JoinError, JoinSet},
+    sync::{mpsc::{self, error::SendError as TokioSendError}, oneshot, OwnedSemaphorePermit},
+    task::JoinError,
 };
 use tokio_util::time::FutureExt;
 use tracing::{debug, error, trace};
@@ -45,14 +43,36 @@ impl Default for Options {
     }
 }
 
+/// A reference to a connection that is owned by a connection pool.
+#[derive(Debug)]
+pub struct ConnectionRef {
+    connection: iroh::endpoint::Connection,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl Deref for ConnectionRef {
+    type Target = iroh::endpoint::Connection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.connection
+    }
+}
+
+impl ConnectionRef {
+    fn new(connection: iroh::endpoint::Connection, permit: OwnedSemaphorePermit) -> Self {
+        Self {
+            connection,
+            _permit: permit,
+        }
+    }
+}
+
 struct Context {
     options: Options,
     endpoint: Endpoint,
     owner: ConnectionPool,
     alpn: Vec<u8>,
 }
-
-type BoxedHandler = Box<dyn FnOnce(PoolConnectResult) -> BoxFuture<ExecuteResult> + Send + 'static>;
 
 /// Error when a connection can not be acquired
 ///
@@ -87,19 +107,24 @@ impl std::fmt::Display for PoolConnectError {
 pub type PoolConnectResult = std::result::Result<Connection, PoolConnectError>;
 
 enum ActorMessage {
-    Handle { id: NodeId, handler: BoxedHandler },
+    RequestRef(RequestRef),
     ConnectionIdle { id: NodeId },
     ConnectionShutdown { id: NodeId },
+}
+
+struct RequestRef {
+    id: NodeId,
+    tx: oneshot::Sender<Result<ConnectionRef, PoolConnectError>>,
 }
 
 /// Run a connection actor for a single node
 async fn run_connection_actor(
     node_id: NodeId,
-    mut rx: mpsc::Receiver<BoxedHandler>,
+    mut rx: mpsc::Receiver<RequestRef>,
     context: Arc<Context>,
 ) {
     // Connect to the node
-    let mut state = match context
+    let state = match context
         .endpoint
         .connect(node_id, &context.alpn)
         .timeout(context.options.connect_timeout)
@@ -115,10 +140,10 @@ async fn run_connection_actor(
             return;
         }
     }
-
-    let mut tasks = JoinSet::new();
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(u32::MAX as usize));
     let idle_timer = MaybeFuture::default();
-    tokio::pin!(idle_timer);
+    let idle_fut = MaybeFuture::default();
+    tokio::pin!(idle_timer, idle_fut);
 
     loop {
         tokio::select! {
@@ -127,11 +152,26 @@ async fn run_connection_actor(
             // Handle new work
             handler = rx.recv() => {
                 match handler {
-                    Some(handler) => {
-                        trace!(%node_id, "Received new task");
-                        // clear the idle timer
-                        idle_timer.as_mut().set_none();
-                        tasks.spawn(handler(state.clone()));
+                    Some(RequestRef { id, tx }) => {
+                        assert!(id == node_id, "Not for me!");
+                        trace!(%node_id, "Received new request");
+                        match &state {
+                            Ok(state) => {
+                                // first acquire a permit for the op, then aquire all permits for idle
+                                let permit = semaphore.clone().acquire_owned().await.expect("semaphore closed");
+                                let res = ConnectionRef::new(state.clone(), permit);
+                                if idle_fut.is_none() {
+                                    idle_fut.as_mut().set_future(semaphore.clone().acquire_many_owned(u32::MAX));
+                                }
+
+                                // clear the idle timer
+                                idle_timer.as_mut().set_none();
+                                tx.send(Ok(res)).ok();
+                            }
+                            Err(cause) => {
+                                tx.send(Err(cause.clone())).ok();
+                            }
+                        }
                     }
                     None => {
                         // Channel closed - finish remaining tasks and exit
@@ -140,43 +180,15 @@ async fn run_connection_actor(
                 }
             }
 
-            // Handle completed tasks
-            Some(task_result) = tasks.join_next(), if !tasks.is_empty() => {
-                match task_result {
-                    Ok(Ok(())) => {
-                        debug!(%node_id, "Task completed");
-                    }
-                    Ok(Err(e)) => {
-                        error!(%node_id, "Task failed: {}", e);
-                        if let Ok(conn) = state {
-                            conn.close(1u32.into(), b"error");
-                        }
-                        state = Err(PoolConnectError::ExecuteError(Arc::new(e)));
-                        let _ = context.owner.close(node_id).await;
-                    }
-                    Err(e) => {
-                        error!(%node_id, "Task panicked: {}", e);
-                        if let Ok(conn) = state {
-                            conn.close(1u32.into(), b"panic");
-                        }
-                        state = Err(PoolConnectError::JoinError(Arc::new(e)));
-                        let _ = context.owner.close(node_id).await;
-                    }
+            _ = &mut idle_fut => {
+                // notify the pool that we are idle.
+                trace!(%node_id, "Idle");
+                if context.owner.idle(node_id).await.is_err() {
+                    // If we can't notify the pool, we are shutting down
+                    break;
                 }
-
-                // We are idle
-                if tasks.is_empty() {
-                    // If the channel is closed, we can exit
-                    if rx.is_closed() {
-                        break;
-                    }
-                    if context.owner.idle(node_id).await.is_err() {
-                        // If we can't notify the pool, we are shutting down
-                        break;
-                    }
-                    // set the idle timer
-                    idle_timer.as_mut().set_future(tokio::time::sleep(context.options.idle_timeout));
-                }
+                // set the idle timer
+                idle_timer.as_mut().set_future(tokio::time::sleep(context.options.idle_timeout));
             }
 
             // Idle timeout - request shutdown
@@ -188,15 +200,13 @@ async fn run_connection_actor(
         }
     }
 
-    // Wait for remaining tasks to complete
-    while let Some(task_result) = tasks.join_next().await {
-        if let Err(e) = task_result {
-            error!(%node_id, "Task failed during shutdown: {}", e);
-        }
-    }
-
-    if let Ok(connection) = &state {
-        connection.close(0u32.into(), b"idle");
+    if let Ok(connection) = state {
+        let reason = if semaphore.available_permits() == u32::MAX as usize {
+            "idle"
+        } else {
+            "drop"
+        };
+        connection.close(0u32.into(), reason.as_bytes());
     }
 
     debug!(%node_id, "Connection actor shutting down");
@@ -204,7 +214,7 @@ async fn run_connection_actor(
 
 struct Actor {
     rx: mpsc::Receiver<ActorMessage>,
-    connections: HashMap<NodeId, mpsc::Sender<BoxedHandler>>,
+    connections: HashMap<NodeId, mpsc::Sender<RequestRef>>,
     context: Arc<Context>,
     // idle set (most recent last)
     // todo: use a better data structure if this becomes a performance issue
@@ -255,12 +265,13 @@ impl Actor {
     pub async fn run(mut self) {
         while let Some(msg) = self.rx.recv().await {
             match msg {
-                ActorMessage::Handle { id, mut handler } => {
+                ActorMessage::RequestRef(mut msg) => {
+                    let id = msg.id;
                     self.remove_idle(id);
                     // Try to send to existing connection actor
                     if let Some(conn_tx) = self.connections.get(&id) {
-                        if let Err(TokioSendError(e)) = conn_tx.send(handler).await {
-                            handler = e;
+                        if let Err(TokioSendError(e)) = conn_tx.send(msg).await {
+                            msg = e;
                         } else {
                             continue;
                         }
@@ -275,8 +286,7 @@ impl Actor {
                             trace!("removing oldest idle connection {}", idle);
                             self.connections.remove(&idle);
                         } else {
-                            handler(Err(PoolConnectError::TooManyConnections))
-                                .await
+                            msg.tx.send(Err(PoolConnectError::TooManyConnections))
                                 .ok();
                             continue;
                         }
@@ -289,7 +299,7 @@ impl Actor {
                     tokio::spawn(run_connection_actor(id, conn_rx, context));
 
                     // Send the handler to the new actor
-                    if conn_tx.send(handler).await.is_err() {
+                    if conn_tx.send(msg).await.is_err() {
                         error!(%id, "Failed to send handler to new connection actor");
                         self.connections.remove(&id);
                     }
@@ -324,8 +334,6 @@ pub enum ConnectionPoolError {
 #[derive(Debug, Snafu)]
 pub struct ExecuteError;
 
-type ExecuteResult = std::result::Result<(), ExecuteError>;
-
 impl From<PoolConnectError> for ExecuteError {
     fn from(_: PoolConnectError) -> Self {
         ExecuteError
@@ -348,62 +356,17 @@ impl ConnectionPool {
         Self { tx }
     }
 
-    /// Connect to a node and execute the given handler function
-    ///
-    /// The connection will either be a new connection or an existing one if it is already established.
-    /// If connection establishment succeeds, the handler will be called with a [`Ok`].
-    /// If connection establishment fails, the handler will get passed a [`Err`] containing the error.
-    ///
-    /// The fn f is guaranteed to be called exactly once, unless the tokio runtime is shutting down.
-    pub async fn connect<F, Fut>(
+    pub async fn connect(
         &self,
         id: NodeId,
-        f: F,
-    ) -> std::result::Result<(), ConnectionPoolError>
-    where
-        F: FnOnce(PoolConnectResult) -> Fut + Send + 'static,
-        Fut: Future<Output = ExecuteResult> + Send + 'static,
-    {
-        let handler =
-            Box::new(move |conn: PoolConnectResult| Box::pin(f(conn)) as BoxFuture<ExecuteResult>);
-
-        self.tx
-            .send(ActorMessage::Handle { id, handler })
-            .await
-            .map_err(|_| ConnectionPoolError::Shutdown)?;
-
-        Ok(())
-    }
-
-    pub async fn with_connection<F, Fut, I, E>(
-        &self,
-        id: NodeId,
-        f: F,
-    ) -> Result<Result<Result<I, E>, PoolConnectError>, ConnectionPoolError>
-    where
-        F: FnOnce(Connection) -> Fut + Send + 'static,
-        Fut: Future<Output = Result<I, E>> + Send + 'static,
-        I: Send + 'static,
-        E: Send + 'static,
+    ) -> std::result::Result<std::result::Result<ConnectionRef, PoolConnectError>, ConnectionPoolError>
     {
         let (tx, rx) = oneshot::channel();
-        self.connect(id, |conn| async move {
-            let (res, ret) = match conn {
-                Ok(connection) => {
-                    let res = f(connection).await;
-                    let ret = match &res {
-                        Ok(_) => Ok(()),
-                        Err(_) => Err(ExecuteError),
-                    };
-                    (Ok(res), ret)
-                }
-                Err(e) => (Err(e), Err(ExecuteError)),
-            };
-            tx.send(res).ok();
-            ret
-        })
-        .await?;
-        rx.await.map_err(|_| ConnectionPoolError::Shutdown)
+        self.tx
+            .send(ActorMessage::RequestRef(RequestRef { id, tx }))
+            .await
+            .map_err(|_| ConnectionPoolError::Shutdown)?;
+        Ok(rx.await.map_err(|_| ConnectionPoolError::Shutdown)?)
     }
 
     /// Close an existing connection, if it exists

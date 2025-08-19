@@ -40,7 +40,7 @@ impl ProtocolHandler for Echo {
     }
 }
 
-async fn echo_client(conn: Connection, text: &[u8]) -> n0_snafu::Result<Vec<u8>> {
+async fn echo_client(conn: &Connection, text: &[u8]) -> n0_snafu::Result<Vec<u8>> {
     let conn_id = conn.stable_id();
     let id = conn.remote_node_id().e()?;
     trace!(%id, %conn_id, "Sending echo request");
@@ -96,18 +96,23 @@ impl EchoClient {
         Result<Result<(usize, Vec<u8>), n0_snafu::Error>, PoolConnectError>,
         ConnectionPoolError,
     > {
-        self.pool
-            .with_connection(id, |conn| async move {
-                let id = conn.stable_id();
-                let res = echo_client(conn, &text).await?;
-                Ok((id, res))
-            })
-            .await
+        let conn = self.pool.connect(id).await?;
+        let conn = match conn {
+            Ok(conn) => conn,
+            Err(e) => return Ok(Err(e)),
+        };
+        let id = conn.stable_id();
+        match echo_client(&conn, &text).await {
+            Ok(res) => Ok(Ok(Ok((id, res)))),
+            Err(e) => Ok(Ok(Err(e))),
+        }
     }
 }
 
 #[tokio::test]
 async fn connection_pool_errors() -> TestResult<()> {
+    let filter = tracing_subscriber::EnvFilter::from_default_env();
+    tracing_subscriber::fmt().with_env_filter(filter).try_init().ok();
     // set up static discovery for all addrs
     let discovery = StaticProvider::new();
     let endpoint = iroh::Endpoint::builder()
@@ -145,9 +150,9 @@ async fn connection_pool_errors() -> TestResult<()> {
 
 #[tokio::test]
 async fn connection_pool_smoke() -> TestResult<()> {
-    let n = 32;
     let filter = tracing_subscriber::EnvFilter::from_default_env();
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    tracing_subscriber::fmt().with_env_filter(filter).try_init().ok();
+    let n = 32;
     let nodes = echo_servers(n).await?;
     let ids = nodes
         .iter()
@@ -172,7 +177,7 @@ async fn connection_pool_smoke() -> TestResult<()> {
         assert_eq!(cid1, cid2);
         connection_ids.insert(id, cid1);
     }
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
     for id in &ids {
         let cid1 = *connection_ids.get(id).expect("Connection ID not found");
         let (cid2, res) = client.echo(*id, msg.clone()).await???;
@@ -186,9 +191,9 @@ async fn connection_pool_smoke() -> TestResult<()> {
 /// maximum connection limit.
 #[tokio::test]
 async fn connection_pool_idle() -> TestResult<()> {
-    let n = 32;
     let filter = tracing_subscriber::EnvFilter::from_default_env();
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    tracing_subscriber::fmt().with_env_filter(filter).try_init().ok();
+    let n = 32;
     let nodes = echo_servers(n).await?;
     let ids = nodes
         .iter()
