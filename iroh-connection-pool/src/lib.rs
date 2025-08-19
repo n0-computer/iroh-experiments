@@ -1,9 +1,6 @@
-use std::{
-    ops::Deref,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use n0_future::Stream;
@@ -14,30 +11,6 @@ pub mod connection_pool_0rtt;
 
 #[cfg(test)]
 mod tests;
-
-/// A reference to a connection that is owned by a connection pool.
-#[derive(Debug)]
-pub struct ConnectionRef {
-    connection: iroh::endpoint::Connection,
-    _permit: OneConnection,
-}
-
-impl Deref for ConnectionRef {
-    type Target = iroh::endpoint::Connection;
-
-    fn deref(&self) -> &Self::Target {
-        &self.connection
-    }
-}
-
-impl ConnectionRef {
-    fn new(connection: iroh::endpoint::Connection, counter: OneConnection) -> Self {
-        Self {
-            connection,
-            _permit: counter,
-        }
-    }
-}
 
 #[derive(Debug)]
 struct ConnectionCounterInner {

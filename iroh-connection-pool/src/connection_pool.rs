@@ -10,6 +10,7 @@
 //! connect, and don't clone it out of the future.
 use std::{
     collections::{HashMap, VecDeque},
+    ops::Deref,
     sync::Arc,
     time::Duration,
 };
@@ -30,7 +31,7 @@ use tokio::{
 use tokio_util::time::FutureExt as TimeFutureExt;
 use tracing::{debug, error, trace};
 
-use crate::{ConnectionCounter, ConnectionRef};
+use crate::{ConnectionCounter, OneConnection};
 
 /// Configuration options for the connection pool
 #[derive(Debug, Clone, Copy)]
@@ -46,6 +47,30 @@ impl Default for Options {
             idle_timeout: Duration::from_secs(5),
             connect_timeout: Duration::from_secs(1),
             max_connections: 1024,
+        }
+    }
+}
+
+/// A reference to a connection that is owned by a connection pool.
+#[derive(Debug)]
+pub struct ConnectionRef {
+    connection: iroh::endpoint::Connection,
+    _permit: OneConnection,
+}
+
+impl Deref for ConnectionRef {
+    type Target = iroh::endpoint::Connection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.connection
+    }
+}
+
+impl ConnectionRef {
+    fn new(connection: iroh::endpoint::Connection, counter: OneConnection) -> Self {
+        Self {
+            connection,
+            _permit: counter,
         }
     }
 }
