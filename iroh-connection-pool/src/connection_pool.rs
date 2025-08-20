@@ -19,14 +19,14 @@ use iroh::{
     Endpoint, NodeId,
     endpoint::{ConnectError, Connection},
 };
-use n0_future::{MaybeFuture, StreamExt};
+use n0_future::{
+    FuturesUnordered, MaybeFuture, StreamExt,
+    future::{self},
+};
 use snafu::Snafu;
-use tokio::{
-    sync::{
-        mpsc::{self, error::SendError as TokioSendError},
-        oneshot,
-    },
-    task::JoinSet,
+use tokio::sync::{
+    mpsc::{self, error::SendError as TokioSendError},
+    oneshot,
 };
 use tokio_util::time::FutureExt as TimeFutureExt;
 use tracing::{debug, error, trace};
@@ -227,7 +227,7 @@ struct Actor {
     // todo: use a better data structure if this becomes a performance issue
     idle: VecDeque<NodeId>,
     // per connection tasks
-    tasks: JoinSet<()>,
+    tasks: FuturesUnordered<future::Boxed<()>>,
 }
 
 impl Actor {
@@ -248,7 +248,7 @@ impl Actor {
                     endpoint,
                     owner: ConnectionPool { tx: tx.clone() },
                 }),
-                tasks: JoinSet::new(),
+                tasks: FuturesUnordered::new(),
             },
             tx,
         )
@@ -304,7 +304,8 @@ impl Actor {
 
                 let context = self.context.clone();
 
-                self.tasks.spawn(run_connection_actor(id, conn_rx, context));
+                self.tasks
+                    .push(Box::pin(run_connection_actor(id, conn_rx, context)));
 
                 // Send the handler to the new actor
                 if conn_tx.send(msg).await.is_err() {
@@ -337,14 +338,7 @@ impl Actor {
                     }
                 }
 
-                res = self.tasks.join_next(), if !self.tasks.is_empty() => {
-                    if let Some(Err(e)) = res {
-                        // panic during either connection establishment or
-                        // timeout. Message handling is outside the actor's
-                        // control, so we should hopefully never get this.
-                        error!("Connection actor failed: {e}");
-                    }
-                }
+                _ = self.tasks.next(), if !self.tasks.is_empty() => {}
             }
         }
     }
