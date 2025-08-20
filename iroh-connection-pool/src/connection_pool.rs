@@ -26,7 +26,7 @@ use tokio::{
         mpsc::{self, error::SendError as TokioSendError},
         oneshot,
     },
-    task::JoinError,
+    task::JoinSet,
 };
 use tokio_util::time::FutureExt as TimeFutureExt;
 use tracing::{debug, error, trace};
@@ -86,7 +86,8 @@ struct Context {
 ///
 /// This includes the normal iroh connection errors as well as pool specific
 /// errors such as timeouts and connection limits.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Snafu)]
+#[snafu(module)]
 pub enum PoolConnectError {
     /// Connection pool is shut down
     Shutdown,
@@ -95,21 +96,25 @@ pub enum PoolConnectError {
     /// Too many connections
     TooManyConnections,
     /// Error during connect
-    ConnectError(Arc<ConnectError>),
-    /// Handler actor panicked
-    JoinError(Arc<JoinError>),
+    ConnectError { source: Arc<ConnectError> },
 }
 
-impl std::fmt::Display for PoolConnectError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PoolConnectError::Shutdown => write!(f, "Connection pool is shut down"),
-            PoolConnectError::Timeout => write!(f, "Connection timed out"),
-            PoolConnectError::TooManyConnections => write!(f, "Too many connections"),
-            PoolConnectError::ConnectError(e) => write!(f, "Connection error: {e}"),
-            PoolConnectError::JoinError(e) => write!(f, "Join error: {e}"),
+impl From<ConnectError> for PoolConnectError {
+    fn from(e: ConnectError) -> Self {
+        PoolConnectError::ConnectError {
+            source: Arc::new(e),
         }
     }
+}
+
+/// Error when calling a fn on the [`ConnectionPool`].
+///
+/// The only thing that can go wrong is that the connection pool is shut down.
+#[derive(Debug, Snafu)]
+#[snafu(module)]
+pub enum ConnectionPoolError {
+    /// The connection pool has been shut down
+    Shutdown,
 }
 
 pub type PoolConnectResult = std::result::Result<Connection, PoolConnectError>;
@@ -125,7 +130,7 @@ struct RequestRef {
     tx: oneshot::Sender<Result<ConnectionRef, PoolConnectError>>,
 }
 
-/// Run a connection actor for a single node
+/// Run a connection actor for a single remote node id
 async fn run_connection_actor(
     node_id: NodeId,
     mut rx: mpsc::Receiver<RequestRef>,
@@ -139,7 +144,7 @@ async fn run_connection_actor(
         .await
     {
         Ok(Ok(conn)) => Ok(conn),
-        Ok(Err(e)) => Err(PoolConnectError::ConnectError(Arc::new(e))),
+        Ok(Err(e)) => Err(PoolConnectError::from(e)),
         Err(_) => Err(PoolConnectError::Timeout),
     };
     if let Err(e) = &state {
@@ -221,6 +226,8 @@ struct Actor {
     // idle set (most recent last)
     // todo: use a better data structure if this becomes a performance issue
     idle: VecDeque<NodeId>,
+    // per connection tasks
+    tasks: JoinSet<()>,
 }
 
 impl Actor {
@@ -241,6 +248,7 @@ impl Actor {
                     endpoint,
                     owner: ConnectionPool { tx: tx.clone() },
                 }),
+                tasks: JoinSet::new(),
             },
             tx,
         )
@@ -264,68 +272,82 @@ impl Actor {
         self.remove_idle(id);
     }
 
-    pub async fn run(mut self) {
-        while let Some(msg) = self.rx.recv().await {
-            match msg {
-                ActorMessage::RequestRef(mut msg) => {
-                    let id = msg.id;
-                    self.remove_idle(id);
-                    // Try to send to existing connection actor
-                    if let Some(conn_tx) = self.connections.get(&id) {
-                        if let Err(TokioSendError(e)) = conn_tx.send(msg).await {
-                            msg = e;
-                        } else {
-                            continue;
-                        }
-                        // Connection actor died, remove it
-                        self.remove_connection(id);
+    async fn handle_msg(&mut self, msg: ActorMessage) {
+        match msg {
+            ActorMessage::RequestRef(mut msg) => {
+                let id = msg.id;
+                self.remove_idle(id);
+                // Try to send to existing connection actor
+                if let Some(conn_tx) = self.connections.get(&id) {
+                    if let Err(TokioSendError(e)) = conn_tx.send(msg).await {
+                        msg = e;
+                    } else {
+                        return;
                     }
-
-                    // No connection actor or it died - check limits
-                    if self.connections.len() >= self.context.options.max_connections {
-                        if let Some(idle) = self.pop_oldest_idle() {
-                            // remove the oldest idle connection to make room for one more
-                            trace!("removing oldest idle connection {}", idle);
-                            self.connections.remove(&idle);
-                        } else {
-                            msg.tx.send(Err(PoolConnectError::TooManyConnections)).ok();
-                            continue;
-                        }
-                    }
-                    let (conn_tx, conn_rx) = mpsc::channel(100);
-                    self.connections.insert(id, conn_tx.clone());
-
-                    let context = self.context.clone();
-
-                    tokio::spawn(run_connection_actor(id, conn_rx, context));
-
-                    // Send the handler to the new actor
-                    if conn_tx.send(msg).await.is_err() {
-                        error!(%id, "Failed to send handler to new connection actor");
-                        self.connections.remove(&id);
-                    }
-                }
-                ActorMessage::ConnectionIdle { id } => {
-                    self.add_idle(id);
-                    trace!(%id, "connection idle");
-                }
-                ActorMessage::ConnectionShutdown { id } => {
-                    // Remove the connection from our map - this closes the channel
+                    // Connection actor died, remove it
                     self.remove_connection(id);
-                    trace!(%id, "removed connection");
+                }
+
+                // No connection actor or it died - check limits
+                if self.connections.len() >= self.context.options.max_connections {
+                    if let Some(idle) = self.pop_oldest_idle() {
+                        // remove the oldest idle connection to make room for one more
+                        trace!("removing oldest idle connection {}", idle);
+                        self.connections.remove(&idle);
+                    } else {
+                        msg.tx.send(Err(PoolConnectError::TooManyConnections)).ok();
+                        return;
+                    }
+                }
+                let (conn_tx, conn_rx) = mpsc::channel(100);
+                self.connections.insert(id, conn_tx.clone());
+
+                let context = self.context.clone();
+
+                self.tasks.spawn(run_connection_actor(id, conn_rx, context));
+
+                // Send the handler to the new actor
+                if conn_tx.send(msg).await.is_err() {
+                    error!(%id, "Failed to send handler to new connection actor");
+                    self.connections.remove(&id);
+                }
+            }
+            ActorMessage::ConnectionIdle { id } => {
+                self.add_idle(id);
+                trace!(%id, "connection idle");
+            }
+            ActorMessage::ConnectionShutdown { id } => {
+                // Remove the connection from our map - this closes the channel
+                self.remove_connection(id);
+                trace!(%id, "removed connection");
+            }
+        }
+    }
+
+    pub async fn run(mut self) {
+        loop {
+            tokio::select! {
+                biased;
+
+                msg = self.rx.recv() => {
+                    if let Some(msg) = msg {
+                        self.handle_msg(msg).await;
+                    } else {
+                        break;
+                    }
+                }
+
+                res = self.tasks.join_next(), if !self.tasks.is_empty() => {
+                    if let Some(Err(e)) = res {
+                        // panic during either connection establishment or
+                        // timeout. Message handling is outside the actor's
+                        // control, so we should hopefully never get this.
+                        error!("Connection actor failed: {e}");
+                    }
                 }
             }
         }
     }
-}
-
-/// Error when calling a fn on the [`ConnectionPool`].
-///
-/// The only thing that can go wrong is that the connection pool is shut down.
-#[derive(Debug, Snafu)]
-pub enum ConnectionPoolError {
-    /// The connection pool has been shut down
-    Shutdown,
 }
 
 /// A connection pool

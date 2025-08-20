@@ -122,7 +122,7 @@ async fn connection_pool_errors() -> TestResult<()> {
         let res = client.echo(non_existing, b"Hello, world!".to_vec()).await;
         // trying to connect to a non-existing id will fail with ConnectError
         // because we don't have any information about the node
-        assert!(matches!(res, Err(PoolConnectError::ConnectError(_))));
+        assert!(matches!(res, Err(PoolConnectError::ConnectError { .. })));
     }
     {
         let non_listening = SecretKey::from_bytes(&[0; 32]).public();
