@@ -55,6 +55,24 @@ impl Default for Options {
 }
 
 /// A reference to a connection that is owned by a connection pool.
+///
+/// You need to keep the [`ConnectionRef`] around until you are done with the
+/// connection. Otherwise the connection will be closed by the pool after
+/// the idle timeout, even if you are still working with it!
+///
+/// ```rust
+/// # use iroh::NodeId;
+/// # async fn test() -> anyhow::Result<()> {
+/// # let pool: iroh_connection_pool::connection_pool::ConnectionPool = todo!();
+/// # let node_id: NodeId = todo!();
+/// let conn = pool.connect(node_id).await?;
+/// // work with the connection
+/// drop(conn);
+/// # }
+/// ```
+///
+/// ConnectionRef does not implement Clone. If you need multiple you can just
+/// wrap them in an Arc or request another one from the pool.
 #[derive(Debug)]
 pub struct ConnectionRef {
     connection: iroh::endpoint::Connection,
@@ -379,7 +397,7 @@ impl Actor {
     }
 }
 
-/// Error when calling a fn on the [`ConnectionPool`].
+/// Error when calling a fn on the [`ConnectionPool0Rtt`].
 ///
 /// The only thing that can go wrong is that the connection pool is shut down.
 #[derive(Debug, Snafu)]
