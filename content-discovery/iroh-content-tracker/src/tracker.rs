@@ -1027,7 +1027,7 @@ impl Tracker {
     ) -> anyhow::Result<Stats> {
         let cap = format!("{content} at {host}");
         let HashAndFormat { hash, format } = content;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let stats = if probe_kind == ProbeKind::Incomplete {
             tracing::debug!("Size probing {}...", cap);
             let (size, stats) = unverified_size(connection, hash).await?;
@@ -1042,7 +1042,7 @@ impl Tracker {
             match format {
                 BlobFormat::Raw => {
                     let size = self.get_or_insert_size(connection, hash).await?;
-                    let random_chunk = rng.gen_range(0..ChunkNum::chunks(size).0);
+                    let random_chunk = rng.random_range(0..ChunkNum::chunks(size).0);
                     tracing::debug!("Chunk probing {}, chunk {}", cap, random_chunk);
                     let stats = chunk_probe(connection, hash, ChunkNum(random_chunk)).await?;
                     tracing::debug!(
@@ -1055,7 +1055,7 @@ impl Tracker {
                 }
                 BlobFormat::HashSeq => {
                     let (hs, sizes) = self.get_or_insert_sizes(connection, hash).await?;
-                    let ranges = random_hash_seq_ranges(&sizes, rand::thread_rng());
+                    let ranges = random_hash_seq_ranges(&sizes, rand::rng());
                     let text = ranges
                         .iter_non_empty_infinite()
                         .map(|(index, ranges)| format!("child={index}, ranges={ranges:?}"))

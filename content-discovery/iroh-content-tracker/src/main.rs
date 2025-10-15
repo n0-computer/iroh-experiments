@@ -4,11 +4,10 @@ use std::{
     net::{SocketAddrV4, SocketAddrV6},
     path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant},
 };
 
 use clap::Parser;
-use iroh::{endpoint::BindError, Endpoint, Watcher};
+use iroh::{endpoint::BindError, Endpoint};
 use iroh_content_discovery::protocol::ALPN;
 use iroh_content_tracker::{
     io::{
@@ -41,22 +40,6 @@ macro_rules! log {
             info!($($arg)*);
         }
     };
-}
-
-/// Wait until the endpoint has figured out it's own DERP region.
-async fn await_relay_region(endpoint: &Endpoint) -> anyhow::Result<()> {
-    let t0 = Instant::now();
-    loop {
-        let addr = endpoint.node_addr().initialized().await;
-        if addr.relay_url().is_some() {
-            break;
-        }
-        if t0.elapsed() > Duration::from_secs(10) {
-            anyhow::bail!("timeout waiting for DERP region");
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    Ok(())
 }
 
 async fn create_endpoint(
@@ -112,8 +95,8 @@ async fn server(args: Args) -> anyhow::Result<()> {
         create_endpoint(key.clone(), options.ipv4_bind_addr, options.ipv6_bind_addr).await?;
     let db = Tracker::new(options, endpoint.clone())?;
     db.dump().await?;
-    await_relay_region(&endpoint).await?;
-    let addr = endpoint.node_addr().initialized().await;
+    endpoint.online().await;
+    let addr = endpoint.node_addr();
     println!("tracker addr: {}\n", addr.node_id);
     info!("listening on {:?}", addr);
     // let db2 = db.clone();
@@ -169,7 +152,7 @@ pub async fn load_secret_key(key_path: PathBuf) -> anyhow::Result<iroh::SecretKe
         let secret_key = SecretKey::from_bytes(&kp.private.to_bytes());
         Ok(secret_key)
     } else {
-        let secret_key = SecretKey::generate(rand::rngs::OsRng);
+        let secret_key = SecretKey::generate(&mut rand::rng());
         let ckey = ssh_key::private::Ed25519Keypair {
             public: secret_key.public().public().into(),
             private: secret_key.secret().into(),

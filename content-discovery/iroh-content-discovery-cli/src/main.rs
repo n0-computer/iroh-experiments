@@ -86,8 +86,7 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
 async fn create_client_endpoint() -> Result<endpoint::Endpoint, BindError> {
     let discovery = iroh::discovery::pkarr::dht::DhtDiscovery::builder()
         .dht(true)
-        .n0_dns_pkarr_relay()
-        .build()?;
+        .n0_dns_pkarr_relay();
     endpoint::Endpoint::builder()
         .discovery(discovery)
         .bind()
