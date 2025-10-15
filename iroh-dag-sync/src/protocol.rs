@@ -113,15 +113,6 @@ impl SyncResponseHeader {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum DataMode {
-    /// no data is included
-    None = 0,
-    /// data is included
-    Inline = 1,
-}
-
 /// Options to configure a traversal
 ///
 /// The exact traversal options will probably be project specific, since we don't
