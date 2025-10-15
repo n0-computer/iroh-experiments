@@ -2,7 +2,7 @@ use anyhow::Context;
 use bao_tree::{io::outboard::EmptyOutboard, BaoTree, ChunkRanges};
 use iroh::endpoint::{Connecting, RecvStream, SendStream};
 use iroh_blobs::store::{fs::FsStore, IROH_BLOCK_SIZE};
-use iroh_io::TokioStreamReader;
+use iroh_io::{TokioStreamReader, TokioStreamWriter};
 use multihash_codetable::MultihashDigest;
 use tokio::io::AsyncReadExt;
 
@@ -61,25 +61,28 @@ where
     T::Db: ReadableTables,
 {
     let mut traversal = traversal;
+    let mut send = TokioStreamWriter(send);
     while let Some(cid) = traversal.next().await? {
         let hash = traversal
             .db_mut()
             .blake3_hash(cid.hash())?
             .context("blake3 hash not found")?;
         if inline(&cid) {
-            send.write_all(&SyncResponseHeader::Data(hash).as_bytes())
+            send.0
+                .write_all(&SyncResponseHeader::Data(hash).as_bytes())
                 .await?;
 
             blobs
                 .export_bao(hash, ChunkRanges::all())
-                .write_quinn(send)
+                .write(&mut send)
                 .await?;
         } else {
-            send.write_all(&SyncResponseHeader::Hash(hash).as_bytes())
+            send.0
+                .write_all(&SyncResponseHeader::Hash(hash).as_bytes())
                 .await?;
         }
     }
-    send.finish()?;
+    send.0.finish()?;
     Ok(())
 }
 
