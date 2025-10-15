@@ -28,7 +28,7 @@ tokio-stream = { workspace = true }
 n0-future = { workspace = true, optional = true }
 futures-buffered = { workspace = true, optional = true }
 snafu = "0.8.6"
-ed25519-dalek = "2.1.1"
+ed25519-dalek = "3.0.0-pre.1"
 
 [features]
 client = [

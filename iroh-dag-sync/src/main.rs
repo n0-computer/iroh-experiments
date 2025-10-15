@@ -6,7 +6,7 @@ use clap::Parser;
 use futures_lite::StreamExt;
 use ipld_core::codec::Links;
 use iroh::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
-use iroh::{NodeAddr, Watcher};
+use iroh::NodeAddr;
 use iroh_base::ticket::NodeTicket;
 use iroh_car::CarReader;
 use protocol::{ron_parser, Cid, Request};
@@ -123,8 +123,8 @@ async fn main() -> anyhow::Result<()> {
         args::SubCommand::Node(args) => {
             let endpoint =
                 create_endpoint(args.net.iroh_ipv4_addr, args.net.iroh_ipv6_addr).await?;
-            endpoint.home_relay().initialized().await;
-            let addr = endpoint.node_addr().initialized().await;
+            endpoint.online().await;
+            let addr = endpoint.node_addr();
             println!("Node id:\n{}", addr.node_id);
             println!(
                 "Listening on {:#?}, {:#?}",

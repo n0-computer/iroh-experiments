@@ -26,7 +26,7 @@ async fn smoke_test() -> anyhow::Result<()> {
     let accept_task = tokio::spawn(tracker.clone().accept_loop(tracker_ep.clone()));
     let tracker_id = tracker_ep.node_id();
     let store = MemStore::new();
-    let blobs = BlobsProtocol::new(&store, provider_ep.clone(), None);
+    let blobs = BlobsProtocol::new(&store, None);
     let provider_router = RouterBuilder::new(provider_ep.clone())
         .accept(iroh_blobs::ALPN, blobs.clone())
         .spawn();
