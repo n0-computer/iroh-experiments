@@ -1080,7 +1080,7 @@ impl Tracker {
                     else {
                         unreachable!("request does not include root");
                     };
-                    let index = usize::try_from(child.offset()).expect("child offset too large");
+                    let index = usize::try_from(child.offset() - 1).expect("child offset too large");
                     let hash = hs.get(index).expect("request inconsistent with hash seq");
                     let at_blob_header = child.next(hash);
                     let at_end_blob = at_blob_header.drain().await?;
