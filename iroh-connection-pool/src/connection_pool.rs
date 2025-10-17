@@ -75,13 +75,6 @@ impl ConnectionRef {
     }
 }
 
-struct Context {
-    options: Options,
-    endpoint: Endpoint,
-    owner: ConnectionPool,
-    alpn: Vec<u8>,
-}
-
 /// Error when a connection can not be acquired
 ///
 /// This includes the normal iroh connection errors as well as pool specific
@@ -130,93 +123,100 @@ struct RequestRef {
     tx: oneshot::Sender<Result<ConnectionRef, PoolConnectError>>,
 }
 
-/// Run a connection actor for a single remote node id
-async fn run_connection_actor(
-    node_id: NodeId,
-    mut rx: mpsc::Receiver<RequestRef>,
-    context: Arc<Context>,
-) {
-    // Connect to the node
-    let state = match context
-        .endpoint
-        .connect(node_id, &context.alpn)
-        .timeout(context.options.connect_timeout)
-        .await
-    {
-        Ok(Ok(conn)) => Ok(conn),
-        Ok(Err(e)) => Err(PoolConnectError::from(e)),
-        Err(_) => Err(PoolConnectError::Timeout),
-    };
-    if let Err(e) = &state {
-        debug!(%node_id, "Failed to connect {e:?}, requesting shutdown");
-        if context.owner.close(node_id).await.is_err() {
-            return;
+struct Context {
+    options: Options,
+    endpoint: Endpoint,
+    owner: ConnectionPool,
+    alpn: Vec<u8>,
+}
+
+impl Context {
+    async fn run_connection_actor(
+        self: Arc<Self>,
+        node_id: NodeId,
+        mut rx: mpsc::Receiver<RequestRef>,
+    ) {
+        let context = self;
+
+        // Connect to the node
+        let state = context
+            .endpoint
+            .connect(node_id, &context.alpn)
+            .timeout(context.options.connect_timeout)
+            .await
+            .map_err(|_| PoolConnectError::Timeout)
+            .and_then(|r| r.map_err(PoolConnectError::from));
+        if let Err(e) = &state {
+            debug!(%node_id, "Failed to connect {e:?}, requesting shutdown");
+            if context.owner.close(node_id).await.is_err() {
+                return;
+            }
         }
-    }
-    let counter = ConnectionCounter::new();
-    let idle_timer = MaybeFuture::default();
-    let idle_stream = counter.clone().idle_stream();
+        let counter = ConnectionCounter::new();
+        let idle_timer = MaybeFuture::default();
+        let idle_stream = counter.clone().idle_stream();
 
-    tokio::pin!(idle_timer, idle_stream);
+        tokio::pin!(idle_timer, idle_stream);
 
-    loop {
-        tokio::select! {
-            biased;
+        loop {
+            tokio::select! {
+                biased;
 
-            // Handle new work
-            handler = rx.recv() => {
-                match handler {
-                    Some(RequestRef { id, tx }) => {
-                        assert!(id == node_id, "Not for me!");
-                        match &state {
-                            Ok(state) => {
-                                let res = ConnectionRef::new(state.clone(), counter.get_one());
+                // Handle new work
+                handler = rx.recv() => {
+                    match handler {
+                        Some(RequestRef { id, tx }) => {
+                            assert!(id == node_id, "Not for me!");
+                            match &state {
+                                Ok(state) => {
+                                    let res = ConnectionRef::new(state.clone(), counter.get_one());
 
-                                // clear the idle timer
-                                idle_timer.as_mut().set_none();
-                                tx.send(Ok(res)).ok();
-                            }
-                            Err(cause) => {
-                                tx.send(Err(cause.clone())).ok();
+                                    // clear the idle timer
+                                    idle_timer.as_mut().set_none();
+                                    tx.send(Ok(res)).ok();
+                                }
+                                Err(cause) => {
+                                    tx.send(Err(cause.clone())).ok();
+                                }
                             }
                         }
+                        None => {
+                            // Channel closed - finish remaining tasks and exit
+                            break;
+                        }
                     }
-                    None => {
-                        // Channel closed - finish remaining tasks and exit
+                }
+
+                _ = idle_stream.next() => {
+                    if !counter.is_idle() {
+                        continue;
+                    };
+                    // notify the pool that we are idle.
+                    trace!(%node_id, "Idle");
+                    if context.owner.idle(node_id).await.is_err() {
+                        // If we can't notify the pool, we are shutting down
                         break;
                     }
+                    // set the idle timer
+                    idle_timer.as_mut().set_future(tokio::time::sleep(context.options.idle_timeout));
                 }
-            }
 
-            _ = idle_stream.next() => {
-                if !counter.is_idle() {
-                    continue;
-                };
-                // notify the pool that we are idle.
-                trace!(%node_id, "Idle");
-                if context.owner.idle(node_id).await.is_err() {
-                    // If we can't notify the pool, we are shutting down
-                    break;
+                // Idle timeout - request shutdown
+                _ = &mut idle_timer => {
+                    trace!(%node_id, "Idle timer expired, requesting shutdown");
+                    context.owner.close(node_id).await.ok();
+                    // Don't break here - wait for main actor to close our channel
                 }
-                // set the idle timer
-                idle_timer.as_mut().set_future(tokio::time::sleep(context.options.idle_timeout));
-            }
-
-            // Idle timeout - request shutdown
-            _ = &mut idle_timer => {
-                trace!(%node_id, "Idle timer expired, requesting shutdown");
-                context.owner.close(node_id).await.ok();
-                // Don't break here - wait for main actor to close our channel
             }
         }
-    }
 
-    if let Ok(connection) = state {
-        let reason = if counter.is_idle() { b"idle" } else { b"drop" };
-        connection.close(0u32.into(), reason);
-    }
+        if let Ok(connection) = state {
+            let reason = if counter.is_idle() { b"idle" } else { b"drop" };
+            connection.close(0u32.into(), reason);
+        }
 
-    trace!(%node_id, "Connection actor shutting down");
+        trace!(%node_id, "Connection actor shutting down");
+    }
 }
 
 struct Actor {
@@ -305,7 +305,7 @@ impl Actor {
                 let context = self.context.clone();
 
                 self.tasks
-                    .push(Box::pin(run_connection_actor(id, conn_rx, context)));
+                    .push(Box::pin(context.run_connection_actor(id, conn_rx)));
 
                 // Send the handler to the new actor
                 if conn_tx.send(msg).await.is_err() {
