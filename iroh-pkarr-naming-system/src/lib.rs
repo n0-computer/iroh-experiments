@@ -11,9 +11,9 @@ use iroh_blobs::HashAndFormat;
 use pkarr::{
     dns::{
         rdata::{RData, TXT},
-        Name, Packet, ResourceRecord, CLASS,
+        Name, ResourceRecord, CLASS,
     },
-    SignedPacket,
+    SignedPacket, Timestamp,
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -49,7 +49,7 @@ pub struct IPNS(Arc<Inner>);
 
 #[derive(Debug)]
 struct Inner {
-    pkarr: Arc<pkarr::PkarrClient>,
+    pkarr: Arc<pkarr::Client>,
     packets: Mutex<BTreeMap<iroh::PublicKey, (Record, AbortOnDropHandle<()>)>>,
 }
 
@@ -57,7 +57,7 @@ impl IPNS {
     /// Create a new default IPNS publisher.
     pub fn new() -> anyhow::Result<Self> {
         let inner = Inner {
-            pkarr: Arc::new(pkarr::PkarrClientBuilder::default().build()?),
+            pkarr: Arc::new(pkarr::ClientBuilder::default().build()?),
             packets: Mutex::new(BTreeMap::default()),
         };
         Ok(Self(Arc::new(inner)))
@@ -76,7 +76,7 @@ impl IPNS {
             let publish_task = tokio::spawn(async move {
                 tokio::time::sleep(INITIAL_PUBLISH_DELAY).await;
                 loop {
-                    let res = pkarr.publish(&signed_packet);
+                    let res = pkarr.publish(&signed_packet, None).await;
                     match res {
                         Ok(()) => {
                             tracing::info!("Published record");
@@ -101,7 +101,7 @@ impl IPNS {
     pub async fn resolve(&self, public_key: iroh::PublicKey) -> anyhow::Result<Option<Record>> {
         let public_key =
             pkarr::PublicKey::try_from(public_key.as_bytes()).context("invalid public key")?;
-        let packet = self.0.pkarr.resolve(&public_key)?;
+        let packet = self.0.pkarr.resolve(&public_key).await;
         packet.map(Self::to_record).transpose()
     }
 
@@ -112,16 +112,16 @@ impl IPNS {
         ttl: u32,
     ) -> anyhow::Result<SignedPacket> {
         let keypair = pkarr::Keypair::from_secret_key(&secret_key.to_bytes());
-        let mut packet = Packet::new_reply(0);
+        let mut answers = Vec::new();
         if let Some(content) = record.content() {
-            packet.answers.push(ResourceRecord::new(
+            answers.push(ResourceRecord::new(
                 Name::new(CONTENT_KEY).unwrap(),
                 CLASS::IN,
                 ttl,
                 RData::TXT(TXT::try_from(content.to_string().as_str())?.into_owned()),
             ));
         }
-        Ok(SignedPacket::from_packet(&keypair, &packet)?)
+        Ok(SignedPacket::new(&keypair, &answers, Timestamp::now())?)
     }
 
     fn to_record(packet: SignedPacket) -> anyhow::Result<Record> {
