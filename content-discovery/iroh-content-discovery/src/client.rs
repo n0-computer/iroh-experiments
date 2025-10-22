@@ -2,7 +2,7 @@ use std::{future::Future, result};
 
 use iroh::{
     endpoint::{ConnectOptions, Connection},
-    Endpoint, NodeId,
+    Endpoint, EndpointId,
 };
 use n0_future::{BufferedStreamExt, Stream, StreamExt};
 use snafu::prelude::*;
@@ -62,9 +62,9 @@ pub enum Error {
         backtrace: snafu::Backtrace,
     },
 
-    #[snafu(display("Failed to get remote node id: {}", source))]
-    RemoteNodeId {
-        source: iroh::endpoint::RemoteNodeIdError,
+    #[snafu(display("Failed to get remote endpoint id: {}", source))]
+    RemoteEndpointId {
+        source: iroh::endpoint::RemoteEndpointIdError,
         backtrace: snafu::Backtrace,
     },
 }
@@ -74,10 +74,10 @@ pub type Result<T> = result::Result<T, Error>;
 /// Announce to multiple trackers in parallel.
 pub fn announce_all(
     endpoint: Endpoint,
-    trackers: impl IntoIterator<Item = NodeId>,
+    trackers: impl IntoIterator<Item = EndpointId>,
     signed_announce: SignedAnnounce,
     announce_parallelism: usize,
-) -> impl Stream<Item = (NodeId, Result<()>)> {
+) -> impl Stream<Item = (EndpointId, Result<()>)> {
     n0_future::stream::iter(trackers)
         .map(move |tracker| {
             let endpoint = endpoint.clone();
@@ -91,31 +91,31 @@ pub fn announce_all(
 
 /// Announce to a tracker.
 ///
-/// You can only announce content you yourself claim to have, to avoid spamming other nodes.
+/// You can only announce content you yourself claim to have, to avoid spamming other endpoints.
 ///
 /// `endpoint` is the iroh endpoint to use for announcing.
-/// `tracker` is the node id of the tracker to announce to. It must understand the [crate::ALPN] protocol.
+/// `tracker` is the endpoint id of the tracker to announce to. It must understand the [crate::ALPN] protocol.
 /// `content` is the content to announce.
 /// `kind` is the kind of the announcement. We can claim to have the complete data or only some of it.
 pub async fn announce(
     endpoint: &Endpoint,
-    node_id: NodeId,
+    endpoint_id: EndpointId,
     signed_announce: SignedAnnounce,
 ) -> Result<()> {
     let connecting = endpoint
-        .connect_with_opts(node_id, ALPN, ConnectOptions::default())
+        .connect_with_opts(endpoint_id, ALPN, ConnectOptions::default())
         .await
         .context(ConnectSnafu)?;
     match connecting.into_0rtt() {
         Ok((connection, zero_rtt_accepted)) => {
-            trace!("connected to tracker using possibly 0-rtt: {node_id}");
+            trace!("connected to tracker using possibly 0-rtt: {endpoint_id}");
             announce_conn(&connection, signed_announce, zero_rtt_accepted).await?;
             wait_for_session_ticket(connection);
             Ok(())
         }
         Err(connecting) => {
             let connection = connecting.await.context(Connect1RttSnafu)?;
-            trace!("connected to tracker using 1-rtt: {node_id}");
+            trace!("connected to tracker using 1-rtt: {endpoint_id}");
             announce_conn(&connection, signed_announce, async { true }).await?;
             connection.close(0u32.into(), b"");
             Ok(())
@@ -159,23 +159,23 @@ pub async fn announce_conn(
 /// A single query to a tracker, using 0-rtt if possible.
 pub async fn query(
     endpoint: &Endpoint,
-    node_id: NodeId,
+    endpoint_id: EndpointId,
     args: Query,
 ) -> Result<Vec<SignedAnnounce>> {
     let connecting = endpoint
-        .connect_with_opts(node_id, ALPN, ConnectOptions::default())
+        .connect_with_opts(endpoint_id, ALPN, ConnectOptions::default())
         .await
         .context(ConnectSnafu)?;
     let result = match connecting.into_0rtt() {
         Ok((connection, zero_rtt_accepted)) => {
-            trace!("connected to tracker using possibly 0-rtt: {node_id}");
+            trace!("connected to tracker using possibly 0-rtt: {endpoint_id}");
             let res = query_conn(&connection, args, zero_rtt_accepted).await?;
             wait_for_session_ticket(connection);
             res
         }
         Err(connecting) => {
             let connection = connecting.await.context(Connect1RttSnafu)?;
-            trace!("connected to tracker using 1-rtt: {node_id}");
+            trace!("connected to tracker using 1-rtt: {endpoint_id}");
             let res = query_conn(&connection, args, async { true }).await?;
             connection.close(0u32.into(), b"");
             res
@@ -190,7 +190,7 @@ pub async fn query(
 /// use [`query`] instead.
 pub fn query_all(
     endpoint: Endpoint,
-    trackers: impl IntoIterator<Item = NodeId>,
+    trackers: impl IntoIterator<Item = EndpointId>,
     args: Query,
     query_parallelism: usize,
 ) -> impl Stream<Item = Result<SignedAnnounce>> {
@@ -223,7 +223,7 @@ pub async fn query_conn(
     let request = postcard::to_stdvec(&request).context(SerializeRequestSnafu)?;
     trace!(
         "connected to {:?}",
-        connection.remote_node_id().context(RemoteNodeIdSnafu)?
+        connection.remote_id().context(RemoteEndpointIdSnafu)?
     );
     trace!("opened bi stream");
     let (mut send, recv) = connection.open_bi().await.context(OpenStreamSnafu)?;

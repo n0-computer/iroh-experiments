@@ -15,6 +15,6 @@ anyhow = { workspace = true, features = ["backtrace"] }
 futures = { version = "0.3.25" }
 clap = { version = "4", features = ["derive"] }
 tempfile = { version = "3.4" }
-derive_more = { version = "1.0.0-beta.1", features = ["debug", "display", "from", "try_into"] }
+derive_more = { version = "2", features = ["debug", "display", "from", "try_into"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["io-util", "rt"] }

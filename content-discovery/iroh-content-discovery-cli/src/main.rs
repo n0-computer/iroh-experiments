@@ -23,7 +23,7 @@ async fn announce(args: AnnounceArgs) -> anyhow::Result<()> {
     };
     let content = args.content.hash_and_format();
     if let ContentArg::Ticket(ticket) = &args.content {
-        if ticket.node_addr().node_id != key.public() {
+        if ticket.addr().id != key.public() {
             bail!("ticket does not match the announce secret");
         }
     }

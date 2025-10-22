@@ -12,7 +12,7 @@ anyhow = { workspace = true, features = ["backtrace"] }
 # needs to keep updated with the dep of iroh-blobs
 bao-tree = { version = "0.15.1", features = ["tokio_fsm"], default-features = false }
 bytes = "1"
-derive_more = { version = "1", features = ["debug", "display", "from", "try_into"] }
+derive_more = { version = "2", features = ["debug", "display", "from", "try_into"] }
 dirs-next = "2"
 futures = "0.3.25"
 hex = "0.4.3"
@@ -21,14 +21,14 @@ iroh = { workspace = true }
 iroh-blobs = { workspace = true }
 postcard = { workspace = true, features = ["alloc", "use-std"] }
 rand = "0.9.2"
-rcgen = "0.12.0"
-redb = "1.5.0"
+rcgen = "0.14"
+redb = "2.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.107"
 tempfile = "3.4"
 tokio = { version = "1", features = ["io-util", "rt"] }
 tokio-util = { version = "0.7", features = ["io-util", "io", "rt"] }
-toml = "0.7.3"
+toml = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ttl_cache = "0.5.1"

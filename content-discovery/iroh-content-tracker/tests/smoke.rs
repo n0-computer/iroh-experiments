@@ -15,16 +15,15 @@ async fn smoke_test() -> anyhow::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let tracker_ep = Endpoint::builder()
         .alpns(vec![iroh_content_discovery::ALPN.to_vec()])
-        .discovery_n0()
         .bind()
         .await?;
-    let provider_ep = Endpoint::builder().discovery_n0().bind().await?;
-    let client_ep = Endpoint::builder().discovery_n0().bind().await?;
+    let provider_ep = Endpoint::bind().await?;
+    let client_ep = Endpoint::bind().await?;
     let mut options = iroh_content_tracker::options::Options::debug();
     options.announce_data_path = tempdir.path().join("announce.redb");
     let tracker = Tracker::new(options, tracker_ep.clone())?;
     let accept_task = tokio::spawn(tracker.clone().accept_loop(tracker_ep.clone()));
-    let tracker_id = tracker_ep.node_id();
+    let tracker_id = tracker_ep.id();
     let store = MemStore::new();
     let blobs = BlobsProtocol::new(&store, None);
     let provider_router = RouterBuilder::new(provider_ep.clone())
@@ -52,7 +51,7 @@ async fn smoke_test() -> anyhow::Result<()> {
         Announce {
             content: hash.into(),
             kind: AnnounceKind::Complete,
-            host: provider_ep.node_id(),
+            host: provider_ep.id(),
             timestamp: AbsoluteTime::now(),
         },
         provider_ep.secret_key(),

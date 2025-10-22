@@ -48,9 +48,12 @@ async fn create_endpoint(
     ipv6_addr: Option<SocketAddrV6>,
 ) -> Result<Endpoint, BindError> {
     let mut builder = iroh::Endpoint::builder()
-        .secret_key(key)
-        .discovery_dht()
-        .discovery_n0()
+        .secret_key(key.clone())
+        .discovery(
+            iroh::discovery::pkarr::dht::DhtDiscovery::builder()
+                .secret_key(key)
+                .build()?,
+        )
         .alpns(vec![ALPN.to_vec()]);
     if let Some(ipv4_addr) = ipv4_addr {
         builder = builder.bind_addr_v4(ipv4_addr);
@@ -96,8 +99,8 @@ async fn server(args: Args) -> anyhow::Result<()> {
     let db = Tracker::new(options, endpoint.clone())?;
     db.dump().await?;
     endpoint.online().await;
-    let addr = endpoint.node_addr();
-    println!("tracker addr: {}\n", addr.node_id);
+    let addr = endpoint.addr();
+    println!("tracker addr: {}\n", addr.id);
     info!("listening on {:?}", addr);
     // let db2 = db.clone();
     let db3 = db.clone();
@@ -154,8 +157,8 @@ pub async fn load_secret_key(key_path: PathBuf) -> anyhow::Result<iroh::SecretKe
     } else {
         let secret_key = SecretKey::generate(&mut rand::rng());
         let ckey = ssh_key::private::Ed25519Keypair {
-            public: secret_key.public().public().into(),
-            private: secret_key.secret().into(),
+            public: secret_key.public().as_verifying_key().into(),
+            private: secret_key.as_signing_key().into(),
         };
         let ser_key =
             ssh_key::private::PrivateKey::from(ckey).to_openssh(ssh_key::LineEnding::default())?;
