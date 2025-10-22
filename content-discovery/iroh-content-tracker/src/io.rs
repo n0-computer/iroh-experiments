@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::Context;
-use iroh::NodeId;
+use iroh::EndpointId;
 use iroh_blobs::{get::Stats, HashAndFormat};
 use iroh_content_discovery::protocol::{AnnounceKind, SignedAnnounce};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -28,7 +28,7 @@ pub const TRACKER_HOME_ENV_VAR: &str = "IROH_TRACKER_HOME";
 /// This should be easy to edit manually when serialized as json or toml.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AnnounceData(
-    pub BTreeMap<HashAndFormat, BTreeMap<AnnounceKind, BTreeMap<NodeId, SignedAnnounce>>>,
+    pub BTreeMap<HashAndFormat, BTreeMap<AnnounceKind, BTreeMap<EndpointId, SignedAnnounce>>>,
 );
 
 pub fn save_to_file(data: impl Serialize, path: &Path) -> anyhow::Result<()> {
@@ -89,7 +89,7 @@ pub fn load_from_file<T: DeserializeOwned + Default>(path: &Path) -> anyhow::Res
 
 pub fn log_connection_attempt(
     path: &Option<PathBuf>,
-    host: &NodeId,
+    host: &EndpointId,
     t0: Instant,
     outcome: &Result<iroh::endpoint::Connection, iroh::endpoint::ConnectError>,
 ) -> anyhow::Result<()> {
@@ -121,7 +121,7 @@ pub fn log_connection_attempt(
 
 pub fn log_probe_attempt(
     path: &Option<PathBuf>,
-    host: &NodeId,
+    host: &EndpointId,
     content: &HashAndFormat,
     kind: ProbeKind,
     t0: Instant,

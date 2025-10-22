@@ -14,7 +14,7 @@ license = "MIT OR Apache-2.0"
 iroh-base = { workspace = true }
 iroh-blobs = { workspace = true }
 serde = { version = "1", features = ["derive"] }
-derive_more = { version = "1.0.0-beta.1", features = ["debug", "display", "from", "try_into"] }
+derive_more = { version = "2", features = ["debug", "display", "from", "try_into"] }
 serde-big-array = "0.5.1"
 hex = "0.4.3"
 anyhow = { workspace = true, features = ["backtrace"] }

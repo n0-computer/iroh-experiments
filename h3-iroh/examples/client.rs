@@ -2,8 +2,8 @@ use std::{future, str::FromStr};
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use iroh::NodeAddr;
-use iroh_base::ticket::NodeTicket;
+use iroh::EndpointAddr;
+use iroh_tickets::endpoint::EndpointTicket;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
@@ -27,8 +27,8 @@ async fn main() -> Result<()> {
         bail!("URI scheme must be iroh+h3");
     }
     let ticket = uri.host().context("missing hostname in URI")?;
-    let ticket = NodeTicket::from_str(ticket)?;
-    let addr: NodeAddr = ticket.into();
+    let ticket = EndpointTicket::from_str(ticket)?;
+    let addr: EndpointAddr = ticket.into();
 
     let ep = iroh::Endpoint::builder()
         .keylog(args.keylogfile)
@@ -41,8 +41,17 @@ async fn main() -> Result<()> {
     let (mut driver, mut send_request) = h3::client::new(conn).await?;
 
     let drive_fut = async move {
-        future::poll_fn(|cx| driver.poll_close(cx)).await?;
-        Ok::<(), anyhow::Error>(())
+        let err = future::poll_fn(|cx| driver.poll_close(cx)).await;
+        match err {
+            h3::error::ConnectionError::Local { ref error, .. } => {
+                if matches!(error, h3::error::LocalError::Closing { .. }) {
+                    Ok(())
+                } else {
+                    Err(err)
+                }
+            }
+            _ => Err(err),
+        }
     };
 
     let req_fut = async move {

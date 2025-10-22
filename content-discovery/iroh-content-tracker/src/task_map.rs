@@ -1,9 +1,9 @@
 use std::{
     collections::BTreeMap,
+    fmt::Debug,
     sync::{Arc, Mutex},
 };
 
-use derive_more::Debug;
 use tokio::task::JoinHandle;
 use tokio_util::task::AbortOnDropHandle;
 

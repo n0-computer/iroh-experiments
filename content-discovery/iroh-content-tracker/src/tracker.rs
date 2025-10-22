@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{bail, Context};
 use bao_tree::ChunkNum;
-use iroh::{endpoint::Connection, Endpoint, NodeId};
+use iroh::{endpoint::Connection, Endpoint, EndpointId};
 use iroh_blobs::{
     get::{
         fsm::{EndBlobNext, RequestCounters},
@@ -22,7 +22,7 @@ use iroh_content_discovery::protocol::{
     REQUEST_SIZE_LIMIT,
 };
 use rand::Rng;
-use redb::{ReadableTable, RedbValue};
+use redb::{ReadableTable, Value as RedbValue};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use tokio::sync::{mpsc, oneshot};
@@ -61,8 +61,8 @@ struct Inner {
     /// Tasks that announce to the DHT. There is one task per content item, just to inform the DHT
     /// that we know about the content.
     announce_tasks: TaskMap<HashAndFormat>,
-    /// Tasks that probe nodes. There is one task per node, and it probes all content items for that peer.
-    probe_tasks: TaskMap<NodeId>,
+    /// Tasks that probe endpoints. There is one task per endpoint, and it probes all content items for that peer.
+    probe_tasks: TaskMap<EndpointId>,
     /// The iroh endpoint, which is used to accept incoming connections and to probe peers.
     endpoint: Endpoint,
     /// To spawn non-send futures.
@@ -121,13 +121,13 @@ enum ActorMessage {
         hash: Hash,
         sizes: (HashSeq, Arc<[u64]>),
     },
-    GetContentForNode {
-        node: NodeId,
+    GetContentForEndpoint {
+        endpoint: EndpointId,
         #[debug(skip)]
         tx: oneshot::Sender<anyhow::Result<BTreeMap<AnnounceKind, HashAndFormat>>>,
     },
     StoreProbeResult {
-        node: NodeId,
+        endpoint: EndpointId,
         results: Vec<(HashAndFormat, AnnounceKind, anyhow::Result<Stats>)>,
         now: AbsoluteTime,
     },
@@ -159,7 +159,7 @@ impl ActorMessage {
             Self::Dump
             | Self::Stop
             | Self::Query { .. }
-            | Self::GetContentForNode { .. }
+            | Self::GetContentForEndpoint { .. }
             | Self::GetDistinctContent { .. }
             | Self::GetSize { .. }
             | Self::GetSizes { .. } => MessageCategory::ReadOnly,
@@ -170,7 +170,7 @@ impl ActorMessage {
 #[derive(derive_more::Debug)]
 struct GetDistinctContentResponse {
     content: BTreeSet<HashAndFormat>,
-    nodes: BTreeSet<NodeId>,
+    endpoints: BTreeSet<EndpointId>,
 }
 
 #[derive(derive_more::Debug)]
@@ -280,8 +280,8 @@ impl Actor {
                 let sizes = self.state.collections.get(&hash).cloned();
                 tx.send(Ok(sizes)).ok();
             }
-            ActorMessage::GetContentForNode { node, tx } => {
-                let content = self.get_content_for_node(tables, node);
+            ActorMessage::GetContentForEndpoint { endpoint, tx } => {
+                let content = self.get_content_for_endpoint(tables, endpoint);
                 tx.send(content).ok();
             }
             ActorMessage::GetDistinctContent { tx } => {
@@ -315,8 +315,12 @@ impl Actor {
             ActorMessage::SetSizes { hash, sizes } => {
                 self.state.collections.insert(hash, sizes);
             }
-            ActorMessage::StoreProbeResult { node, results, now } => {
-                self.store_probe_result(tables, node, results, now).ok();
+            ActorMessage::StoreProbeResult {
+                endpoint,
+                results,
+                now,
+            } => {
+                self.store_probe_result(tables, endpoint, results, now).ok();
             }
             ActorMessage::Gc { tx } => {
                 self.gc(tables).ok();
@@ -335,21 +339,21 @@ impl Actor {
     /// Get the content that is supposedly available, grouped by peers
     ///
     /// Todo: this is a full table scan, could be optimized.
-    fn get_content_for_node(
+    fn get_content_for_endpoint(
         &self,
         tables: &impl ReadableTables,
-        node: NodeId,
+        endpoint: EndpointId,
     ) -> anyhow::Result<BTreeMap<AnnounceKind, HashAndFormat>> {
-        let mut content_for_node = BTreeMap::<AnnounceKind, HashAndFormat>::new();
+        let mut content_for_endpoint = BTreeMap::<AnnounceKind, HashAndFormat>::new();
         for entry in tables.announces().iter()? {
             let (path, ..) = entry.unwrap();
             let path = path.value();
-            if path.node() != node {
+            if path.endpoint() != endpoint {
                 continue;
             }
-            content_for_node.insert(path.announce_kind(), path.content());
+            content_for_endpoint.insert(path.announce_kind(), path.content());
         }
-        Ok(content_for_node)
+        Ok(content_for_endpoint)
     }
 
     fn handle_announce(
@@ -371,7 +375,7 @@ impl Actor {
             .transpose()?
             .is_none();
         let prev = tables.announces.get(path)?.map(|x| x.value());
-        // new_host_for_content is true if this is a new host for this path (content, kind, node), false if it is just an update
+        // new_host_for_content is true if this is a new host for this path (content, kind, endpoint), false if it is just an update
         // if this is true we need to start probing it
         //
         // update is true if the new announce is newer than the previous one
@@ -438,13 +442,13 @@ impl Actor {
     fn store_probe_result(
         &mut self,
         tables: &mut Tables,
-        node: NodeId,
+        endpoint: EndpointId,
         results: Vec<(HashAndFormat, AnnounceKind, anyhow::Result<Stats>)>,
         now: AbsoluteTime,
     ) -> anyhow::Result<()> {
         for (content, announce_kind, result) in &results {
             if result.is_ok() {
-                let path = AnnouncePath::new(*content, *announce_kind, node);
+                let path = AnnouncePath::new(*content, *announce_kind, endpoint);
                 tables.probes.insert(path, ProbeValue::from(now))?;
             }
         }
@@ -473,14 +477,14 @@ impl Actor {
         tables: &impl ReadableTables,
     ) -> anyhow::Result<GetDistinctContentResponse> {
         let mut content = BTreeSet::new();
-        let mut nodes = BTreeSet::new();
+        let mut endpoints = BTreeSet::new();
         for entry in tables.announces().iter()? {
             let (path, _) = entry?;
             let path = path.value();
             content.insert(path.content());
-            nodes.insert(path.node());
+            endpoints.insert(path.endpoint());
         }
-        Ok(GetDistinctContentResponse { content, nodes })
+        Ok(GetDistinctContentResponse { content, endpoints })
     }
 
     fn gc(&mut self, tables: &mut Tables) -> anyhow::Result<()> {
@@ -538,7 +542,7 @@ fn join_signed_announce(path: AnnouncePath, value: AnnounceValue) -> SignedAnnou
         announce: Announce {
             content: path.content(),
             kind: path.announce_kind(),
-            host: path.node(),
+            host: path.endpoint(),
             timestamp: value.timestamp,
         },
         signature: value.signature,
@@ -553,17 +557,17 @@ struct AnnouncePath {
     format: u8,
     #[debug("{:?}", self.announce_kind())]
     kind: u8,
-    #[debug("{}", self.node())]
-    node: [u8; 32],
+    #[debug("{}", self.endpoint())]
+    endpoint: [u8; 32],
 }
 
 impl AnnouncePath {
-    fn new(content: HashAndFormat, kind: AnnounceKind, node: NodeId) -> Self {
+    fn new(content: HashAndFormat, kind: AnnounceKind, endpoint: EndpointId) -> Self {
         Self {
             hash: *content.hash.as_bytes(),
             format: content.format as u8,
             kind: kind as u8,
-            node: *node.as_bytes(),
+            endpoint: *endpoint.as_bytes(),
         }
     }
 
@@ -586,8 +590,8 @@ impl AnnouncePath {
         }
     }
 
-    fn node(&self) -> NodeId {
-        NodeId::from_bytes(&self.node).unwrap()
+    fn endpoint(&self) -> EndpointId {
+        EndpointId::from_bytes(&self.endpoint).unwrap()
     }
 
     fn content_min(content: HashAndFormat) -> Self {
@@ -595,7 +599,7 @@ impl AnnouncePath {
             hash: *content.hash.as_bytes(),
             format: 0,
             kind: 0,
-            node: [0; 32],
+            endpoint: [0; 32],
         }
     }
 
@@ -604,7 +608,7 @@ impl AnnouncePath {
             hash: *content.hash.as_bytes(),
             format: 255,
             kind: 255,
-            node: [255; 32],
+            endpoint: [255; 32],
         }
     }
 
@@ -614,12 +618,12 @@ impl AnnouncePath {
             self.content().hash.to_hex(),
             self.content().format,
             self.announce_kind(),
-            self.node()
+            self.endpoint()
         )
     }
 }
 
-impl redb::RedbValue for AnnouncePath {
+impl redb::Value for AnnouncePath {
     type SelfType<'a> = Self;
 
     type AsBytes<'a> = [u8; 66];
@@ -636,13 +640,13 @@ impl redb::RedbValue for AnnouncePath {
         hash.copy_from_slice(&data[0..32]);
         let format = data[32];
         let kind = data[33];
-        let mut node = [0; 32];
-        node.copy_from_slice(&data[34..66]);
+        let mut endpoint = [0; 32];
+        endpoint.copy_from_slice(&data[34..66]);
         Self {
             hash,
             format,
             kind,
-            node,
+            endpoint,
         }
     }
 
@@ -655,7 +659,7 @@ impl redb::RedbValue for AnnouncePath {
         res[0..32].copy_from_slice(&value.hash);
         res[32] = value.format;
         res[33] = value.kind;
-        res[34..66].copy_from_slice(&value.node);
+        res[34..66].copy_from_slice(&value.endpoint);
         res
     }
 
@@ -664,7 +668,7 @@ impl redb::RedbValue for AnnouncePath {
     }
 }
 
-impl redb::RedbKey for AnnouncePath {
+impl redb::Key for AnnouncePath {
     fn compare(data1: &[u8], data2: &[u8]) -> std::cmp::Ordering {
         data1.cmp(data2)
     }
@@ -723,7 +727,7 @@ struct ProbeValue {
     timestamp: AbsoluteTime,
 }
 
-impl redb::RedbValue for ProbeValue {
+impl redb::Value for ProbeValue {
     type SelfType<'a> = Self;
 
     type AsBytes<'a> = [u8; 8];
@@ -829,36 +833,36 @@ impl Tracker {
             handle: Some(handle),
         }));
         // spawn independent announce tasks for each content item
-        for node in dc.nodes {
-            res.setup_probe_task(node);
+        for endpoint in dc.endpoints {
+            res.setup_probe_task(endpoint);
         }
         Ok(res)
     }
 
-    fn setup_probe_task(&self, node: NodeId) {
+    fn setup_probe_task(&self, endpoint: EndpointId) {
         let this = self.clone();
         // announce task only captures this, an Arc, and the content.
         let task = self.0.local_pool.spawn_pinned(move || async move {
             loop {
-                if let Ok(content_for_node) = this.get_content_for_node(node).await {
+                if let Ok(content_for_endpoint) = this.get_content_for_endpoint(endpoint).await {
                     let now = AbsoluteTime::now();
-                    let res = this.probe_one(node, content_for_node).await;
+                    let res = this.probe_one(endpoint, content_for_endpoint).await;
                     match res {
                         Ok(results) => {
-                            tracing::debug!("probed {node}, applying result");
-                            if let Err(cause) = this.apply_result(node, results, now).await {
+                            tracing::debug!("probed {endpoint}, applying result");
+                            if let Err(cause) = this.apply_result(endpoint, results, now).await {
                                 tracing::error!("error applying result: {}", cause);
                             }
                         }
                         Err(cause) => {
-                            tracing::debug!("error probing {node}: {cause}");
+                            tracing::debug!("error probing {endpoint}: {cause}");
                         }
                     }
                 }
                 tokio::time::sleep(this.0.options.probe_interval).await;
             }
         });
-        self.0.probe_tasks.publish(node, task);
+        self.0.probe_tasks.publish(endpoint, task);
     }
 
     pub async fn gc_loop(self) -> anyhow::Result<()> {
@@ -868,11 +872,13 @@ impl Tracker {
             self.gc().await?;
             tracing::debug!("gc end");
             let distinct = self.get_distinct_content().await?;
-            // make sure tasks for expired nodes or content items are removed
+            // make sure tasks for expired endpoints or content items are removed
             self.0
                 .announce_tasks
                 .retain(|x| distinct.content.contains(x));
-            self.0.probe_tasks.retain(|x| distinct.nodes.contains(x));
+            self.0
+                .probe_tasks
+                .retain(|x| distinct.endpoints.contains(x));
         }
     }
 
@@ -917,10 +923,10 @@ impl Tracker {
     /// Handle a single incoming connection on the tracker ALPN.
     pub async fn handle_connection(&self, conn: Connection) -> anyhow::Result<()> {
         let (mut send, mut recv) = conn.accept_bi().await?;
-        let Ok(remote_node_id) = conn.remote_node_id() else {
-            bail!("error getting remote node id");
+        let Ok(remote_endpoint_id) = conn.remote_id() else {
+            bail!("error getting remote endpoint id");
         };
-        trace!("remote node id: {}", remote_node_id);
+        trace!("remote endpoint id: {}", remote_endpoint_id);
         let request = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
         let request = postcard::from_bytes::<Request>(&request)?;
         match request {
@@ -1021,7 +1027,7 @@ impl Tracker {
     async fn probe(
         &self,
         connection: &iroh::endpoint::Connection,
-        host: &NodeId,
+        host: &EndpointId,
         content: &HashAndFormat,
         probe_kind: ProbeKind,
     ) -> anyhow::Result<Stats> {
@@ -1080,7 +1086,8 @@ impl Tracker {
                     else {
                         unreachable!("request does not include root");
                     };
-                    let index = usize::try_from(child.offset() - 1).expect("child offset too large");
+                    let index =
+                        usize::try_from(child.offset() - 1).expect("child offset too large");
                     let hash = hs.get(index).expect("request inconsistent with hash seq");
                     let at_blob_header = child.next(hash);
                     let at_end_blob = at_blob_header.drain().await?;
@@ -1131,14 +1138,14 @@ impl Tracker {
     /// Get the content that is supposedly available, grouped by peers
     ///
     /// Todo: this is a full table scan, could be optimized.
-    async fn get_content_for_node(
+    async fn get_content_for_endpoint(
         &self,
-        node: NodeId,
+        endpoint: EndpointId,
     ) -> anyhow::Result<BTreeMap<AnnounceKind, HashAndFormat>> {
         let (tx, rx) = oneshot::channel();
         self.0
             .actor
-            .send(ActorMessage::GetContentForNode { node, tx })
+            .send(ActorMessage::GetContentForEndpoint { endpoint, tx })
             .await?;
         rx.await?
     }
@@ -1146,13 +1153,17 @@ impl Tracker {
     /// Apply the results of a probe to the database.
     async fn apply_result(
         &self,
-        node: NodeId,
+        endpoint: EndpointId,
         results: Vec<(HashAndFormat, AnnounceKind, anyhow::Result<Stats>)>,
         now: AbsoluteTime,
     ) -> std::result::Result<(), mpsc::error::SendError<ActorMessage>> {
         self.0
             .actor
-            .send(ActorMessage::StoreProbeResult { node, results, now })
+            .send(ActorMessage::StoreProbeResult {
+                endpoint,
+                results,
+                now,
+            })
             .await
     }
 
@@ -1162,7 +1173,7 @@ impl Tracker {
     /// Individual probes can fail, but the probe will continue.
     async fn probe_one(
         &self,
-        host: NodeId,
+        host: EndpointId,
         by_kind_and_content: BTreeMap<AnnounceKind, HashAndFormat>,
     ) -> anyhow::Result<Vec<(HashAndFormat, AnnounceKind, anyhow::Result<Stats>)>> {
         let t0 = Instant::now();

@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use iroh::NodeId;
+use iroh::EndpointId;
 use iroh_blobs::HashAndFormat;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -89,7 +89,7 @@ impl From<AbsoluteTime> for SystemTime {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Announce {
     /// The peer that supposedly has the data.
-    pub host: NodeId,
+    pub host: EndpointId,
     /// The content that the peer claims to have.
     pub content: HashAndFormat,
     /// The kind of the announcement.
@@ -121,12 +121,8 @@ impl Deref for SignedAnnounce {
 
 #[derive(Debug, Snafu)]
 pub enum VerifyError {
-    SignatureError {
-        source: ed25519_dalek::SignatureError,
-    },
-    SerializationError {
-        source: postcard::Error,
-    },
+    SignatureError { source: iroh_base::SignatureError },
+    SerializationError { source: postcard::Error },
 }
 
 impl SignedAnnounce {

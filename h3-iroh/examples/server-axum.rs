@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use axum::{response::Html, routing::get, Router};
-use iroh_base::ticket::NodeTicket;
+use iroh_tickets::endpoint::EndpointTicket;
 use tracing::info;
 
 #[tokio::main]
@@ -17,11 +17,11 @@ async fn main() -> Result<()> {
         .alpns(vec![b"iroh+h3".to_vec()])
         .bind()
         .await?;
-    info!("accepting connections on node: {}", ep.node_id());
+    info!("accepting connections on endpoint: {}", ep.id());
 
-    // Wait for direct addresses and a RelayUrl before printing a NodeTicket.
+    // Wait for direct addresses and a RelayUrl before printing a EndpointTicket.
     ep.online().await;
-    let ticket = NodeTicket::new(ep.node_addr());
+    let ticket = EndpointTicket::new(ep.addr());
     info!("node ticket: {ticket}");
     info!("run: cargo run --example client -- iroh+h3://{ticket}/");
 

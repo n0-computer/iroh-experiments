@@ -2,7 +2,7 @@
 use std::{fmt::Display, str::FromStr};
 
 use clap::{Parser, Subcommand};
-use iroh::NodeId;
+use iroh::EndpointId;
 use iroh_blobs::{ticket::BlobTicket, Hash, HashAndFormat};
 
 #[derive(Parser, Debug)]
@@ -69,7 +69,7 @@ impl FromStr for ContentArg {
 pub struct AnnounceArgs {
     /// trackers to announce to
     #[clap(long, required = true)]
-    pub tracker: Vec<NodeId>,
+    pub tracker: Vec<EndpointId>,
 
     /// The content to announce.
     ///
@@ -87,7 +87,7 @@ pub struct AnnounceArgs {
 pub struct QueryArgs {
     /// the tracker to query
     #[clap(long, required = true)]
-    pub tracker: Vec<NodeId>,
+    pub tracker: Vec<EndpointId>,
 
     /// The content to find hosts for.
     pub content: ContentArg,

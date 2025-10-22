@@ -7,10 +7,10 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::{bail, Result};
 use bytes::{Bytes, BytesMut};
 use clap::Parser;
-use h3::{error::ErrorLevel, quic::BidiStream, server::RequestStream};
+use h3::{quic::BidiStream, server::RequestStream};
 use http::{Request, StatusCode};
 use iroh::endpoint::Incoming;
-use iroh_base::ticket::NodeTicket;
+use iroh_tickets::endpoint::EndpointTicket;
 use tokio::{fs::File, io::AsyncReadExt};
 use tracing::{debug, error, field, info, info_span, Instrument, Span};
 
@@ -47,12 +47,12 @@ async fn main() -> Result<()> {
         .alpns(vec![b"iroh+h3".to_vec()])
         .bind()
         .await?;
-    info!("accepting connections on node: {}", ep.node_id());
+    info!("accepting connections on endpoint: {}", ep.id());
 
-    // Wait for direct addresses and a RelayUrl before printing a NodeTicket.
+    // Wait for direct addresses and a RelayUrl before printing a EndpointTicket.
     ep.online().await;
-    let ticket = NodeTicket::new(ep.node_addr());
-    info!("node ticket: {ticket}");
+    let ticket = EndpointTicket::new(ep.addr());
+    info!("endpoint ticket: {ticket}");
     info!("run e.g.: cargo run --example client -- iroh+h3://{ticket}/Cargo.toml");
 
     // Handle incoming connections
@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
                     error!("failed connection: {err:#}");
                 }
             }
-            .instrument(info_span!("conn", remote_node_id = field::Empty))
+            .instrument(info_span!("conn", remote_endpoint_id = field::Empty))
         });
     }
     ep.close().await;
@@ -74,15 +74,25 @@ async fn main() -> Result<()> {
 
 async fn handle_connection(incoming: Incoming, root: Arc<Option<PathBuf>>) -> Result<()> {
     let conn = incoming.accept()?.await?;
-    let remote_node_id = conn.remote_node_id()?;
+    let remote_endpoint_id = conn.remote_id()?;
     let span = Span::current();
-    span.record("remote_node_id", remote_node_id.fmt_short().to_string());
+    span.record(
+        "remote_endpoint_id",
+        remote_endpoint_id.fmt_short().to_string(),
+    );
     info!("new connection");
 
     let mut h3_conn = h3::server::Connection::new(h3_iroh::Connection::new(conn)).await?;
     loop {
         match h3_conn.accept().await {
-            Ok(Some((req, stream))) => {
+            Ok(Some(req_resolver)) => {
+                let (req, stream) = match req_resolver.resolve_request().await {
+                    Ok((req, stream)) => (req, stream),
+                    Err(err) => {
+                        error!("stream error: {err:#}");
+                        continue;
+                    }
+                };
                 info!(?req, "new request");
                 tokio::spawn({
                     let root = root.clone();
@@ -98,11 +108,8 @@ async fn handle_connection(incoming: Incoming, root: Arc<Option<PathBuf>>) -> Re
                 break;
             }
             Err(err) => {
-                error!("accept error: {err:#}");
-                match err.get_error_level() {
-                    ErrorLevel::ConnectionError => break,
-                    ErrorLevel::StreamError => continue,
-                }
+                error!("connection error: {err:#}");
+                break;
             }
         }
     }
