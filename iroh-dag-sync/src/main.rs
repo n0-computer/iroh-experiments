@@ -5,17 +5,17 @@ use anyhow::Context;
 use clap::Parser;
 use futures_lite::StreamExt;
 use ipld_core::codec::Links;
+use iroh::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
 use iroh::EndpointAddr;
-use iroh::discovery::{ConcurrentDiscovery, dns::DnsDiscovery, pkarr::PkarrPublisher};
 use iroh_car::CarReader;
 use iroh_tickets::endpoint::EndpointTicket;
-use protocol::{Cid, Request, ron_parser};
+use protocol::{ron_parser, Cid, Request};
 use serde::{Deserialize, Serialize};
 use sync::{handle_request, handle_sync_response};
 use tables::{ReadOnlyTables, ReadableTables, Tables};
 use tokio::io::AsyncWriteExt;
 use tokio_util::task::LocalPoolHandle;
-use traversal::{Traversal, get_traversal};
+use traversal::{get_traversal, Traversal};
 
 mod args;
 mod protocol;
@@ -253,7 +253,7 @@ where
             .await
             .context("data not found")?;
         let mut block_bytes = cid.to_bytes(); // postcard::to_extend(&RawCidHeader::from_cid(&cid), Vec::new())?;
-        // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
+                                              // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
         block_bytes.extend_from_slice(&data);
         let size: u64 = block_bytes.len() as u64;
         file.write_all(postcard::to_slice(&size, &mut buffer)?)
