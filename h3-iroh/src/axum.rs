@@ -3,7 +3,7 @@
 use anyhow::Result;
 use axum::Router;
 use bytes::{Buf, Bytes};
-use h3::{error::ErrorLevel, quic::BidiStream, server::RequestStream};
+use h3::{quic::BidiStream, server::RequestStream};
 use http::{Request, Response, Version};
 use http_body_util::BodyExt;
 use iroh::Endpoint;
@@ -41,27 +41,30 @@ async fn handle_connection(incoming: iroh::endpoint::Incoming, router: Router) -
     let mut conn = h3::server::Connection::new(conn).await?;
     loop {
         match conn.accept().await {
-            Ok(Some((req, stream))) => {
-                let router = router.clone();
-                tokio::spawn(
-                    async move {
-                        if let Err(err) = handle_request(req, stream, router.clone()).await {
-                            warn!("handling request failed: {err}");
+            Ok(Some(req_resolver)) => match req_resolver.resolve_request().await {
+                Ok((req, stream)) => {
+                    let router = router.clone();
+                    tokio::spawn(
+                        async move {
+                            if let Err(err) = handle_request(req, stream, router.clone()).await {
+                                warn!("handling request failed: {err}");
+                            }
                         }
-                    }
-                    .instrument(info_span!("h3-request")),
-                );
-            }
+                        .instrument(info_span!("h3-request")),
+                    );
+                }
+                Err(err) => {
+                    error!("stream error: {err}");
+                    continue;
+                }
+            },
             Ok(None) => {
                 break; // No more streams to be recieved
             }
 
             Err(err) => {
-                error!("accept error: {err}");
-                match err.get_error_level() {
-                    ErrorLevel::ConnectionError => break,
-                    ErrorLevel::StreamError => continue,
-                }
+                error!("connection error: {err}");
+                break;
             }
         }
     }
