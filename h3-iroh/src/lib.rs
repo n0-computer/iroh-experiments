@@ -34,6 +34,7 @@ pub struct Connection {
     opening_bi: Option<BoxStreamSync<'static, <OpenBi<'static> as Future>::Output>>,
     incoming_uni: BoxStreamSync<'static, <AcceptUni<'static> as Future>::Output>,
     opening_uni: Option<BoxStreamSync<'static, <OpenUni<'static> as Future>::Output>>,
+    #[allow(dead_code)]
     datagrams: BoxStreamSync<'static, <ReadDatagram<'static> as Future>::Output>,
 }
 
