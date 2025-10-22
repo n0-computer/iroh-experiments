@@ -5,17 +5,17 @@ use anyhow::Context;
 use clap::Parser;
 use futures_lite::StreamExt;
 use ipld_core::codec::Links;
-use iroh::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
-use iroh::NodeAddr;
-use iroh_base::ticket::NodeTicket;
+use iroh::EndpointAddr;
+use iroh::discovery::{ConcurrentDiscovery, dns::DnsDiscovery, pkarr::PkarrPublisher};
 use iroh_car::CarReader;
-use protocol::{ron_parser, Cid, Request};
+use iroh_tickets::endpoint::EndpointTicket;
+use protocol::{Cid, Request, ron_parser};
 use serde::{Deserialize, Serialize};
 use sync::{handle_request, handle_sync_response};
 use tables::{ReadOnlyTables, ReadableTables, Tables};
 use tokio::io::AsyncWriteExt;
 use tokio_util::task::LocalPoolHandle;
-use traversal::{get_traversal, Traversal};
+use traversal::{Traversal, get_traversal};
 
 mod args;
 mod protocol;
@@ -120,17 +120,17 @@ async fn main() -> anyhow::Result<()> {
                 None => print_traversal(traversal, &store).await?,
             }
         }
-        args::SubCommand::Node(args) => {
+        args::SubCommand::Endpoint(args) => {
             let endpoint =
                 create_endpoint(args.net.iroh_ipv4_addr, args.net.iroh_ipv6_addr).await?;
             endpoint.online().await;
-            let addr = endpoint.node_addr();
-            println!("Node id:\n{}", addr.node_id);
-            println!(
-                "Listening on {:#?}, {:#?}",
-                addr.relay_url, addr.direct_addresses
-            );
-            println!("ticket:\n{}", NodeTicket::new(addr.clone()));
+            let addr = endpoint.addr();
+            println!("Endpoint id:\n{}", addr.id);
+            println!("Listening on:");
+            for addr in &addr.addrs {
+                println!("- {addr:?}");
+            }
+            println!("ticket:\n{}", EndpointTicket::new(addr.clone()));
             while let Some(incoming) = endpoint.accept().await {
                 let mut connecting = incoming.accept()?;
                 let alpn = connecting.alpn().await?;
@@ -161,8 +161,8 @@ async fn main() -> anyhow::Result<()> {
             let mut tables = Tables::new(&tx)?;
             let store = store.clone();
             let endpoint = Arc::new(endpoint);
-            let node = NodeAddr::from(args.from);
-            let connection = endpoint.connect(node, SYNC_ALPN).await?;
+            let addr = EndpointAddr::from(args.from);
+            let connection = endpoint.connect(addr, SYNC_ALPN).await?;
             let request = protocol::Request::Sync(protocol::SyncRequest {
                 traversal: traversal.clone(),
                 inline,
@@ -253,7 +253,7 @@ where
             .await
             .context("data not found")?;
         let mut block_bytes = cid.to_bytes(); // postcard::to_extend(&RawCidHeader::from_cid(&cid), Vec::new())?;
-                                              // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
+        // block_bytes.extend_from_slice(&cid.hash().digest()); // hash
         block_bytes.extend_from_slice(&data);
         let size: u64 = block_bytes.len() as u64;
         file.write_all(postcard::to_slice(&size, &mut buffer)?)

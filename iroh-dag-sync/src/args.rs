@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::Parser;
-use iroh::NodeId;
+use iroh::EndpointId;
 
 use crate::protocol::Cid;
 
@@ -18,7 +18,7 @@ pub struct Args {
 pub enum SubCommand {
     Import(ImportArgs),
     Export(ExportArgs),
-    Node(NodeArgs),
+    Endpoint(EndpointArgs),
     Sync(SyncArgs),
 }
 
@@ -41,7 +41,7 @@ pub struct ExportArgs {
 }
 
 #[derive(Debug, Parser)]
-pub struct NodeArgs {
+pub struct EndpointArgs {
     #[clap(flatten)]
     pub net: NetArgs,
 }
@@ -66,6 +66,6 @@ pub struct SyncArgs {
     pub traversal: Option<String>,
     #[clap(long, help = "Which data to send inline")]
     pub inline: Option<String>,
-    #[clap(long, help = "The node to sync from")]
-    pub from: NodeId,
+    #[clap(long, help = "The endpoint to sync from")]
+    pub from: EndpointId,
 }
