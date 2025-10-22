@@ -4,7 +4,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bytes::{Bytes, BytesMut};
 use clap::Parser;
 use h3::{quic::BidiStream, server::RequestStream};
@@ -12,7 +12,7 @@ use http::{Request, StatusCode};
 use iroh::endpoint::Incoming;
 use iroh_tickets::endpoint::EndpointTicket;
 use tokio::{fs::File, io::AsyncReadExt};
-use tracing::{debug, error, field, info, info_span, Instrument, Span};
+use tracing::{Instrument, Span, debug, error, field, info, info_span};
 
 #[derive(Parser, Debug)]
 #[command()]
@@ -86,7 +86,13 @@ async fn handle_connection(incoming: Incoming, root: Arc<Option<PathBuf>>) -> Re
     loop {
         match h3_conn.accept().await {
             Ok(Some(req_resolver)) => {
-                let (req, stream) = req_resolver.resolve_request().await?;
+                let (req, stream) = match req_resolver.resolve_request().await {
+                    Ok((req, stream)) => (req, stream),
+                    Err(err) => {
+                        error!("stream error: {err:#}");
+                        continue;
+                    }
+                };
                 info!(?req, "new request");
                 tokio::spawn({
                     let root = root.clone();
@@ -102,12 +108,8 @@ async fn handle_connection(incoming: Incoming, root: Arc<Option<PathBuf>>) -> Re
                 break;
             }
             Err(err) => {
-                error!("accept error: {err:#}");
-                // TODO:
-                // match err {
-                //     ErrorLevel::ConnectionError => break,
-                //     ErrorLevel::StreamError => continue,
-                // }
+                error!("connection error: {err:#}");
+                break;
             }
         }
     }
