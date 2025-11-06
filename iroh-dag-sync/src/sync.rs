@@ -1,6 +1,6 @@
 use anyhow::Context;
 use bao_tree::{io::outboard::EmptyOutboard, BaoTree, ChunkRanges};
-use iroh::endpoint::{Connecting, RecvStream, SendStream};
+use iroh::endpoint::{Accepting, RecvStream, SendStream};
 use iroh_blobs::store::{fs::FsStore, IROH_BLOCK_SIZE};
 use iroh_io::{TokioStreamReader, TokioStreamWriter};
 use multihash_codetable::MultihashDigest;
@@ -15,15 +15,15 @@ use crate::{
 const MAX_REQUEST_SIZE: usize = 1024 * 1024 * 16;
 
 pub async fn handle_request(
-    mut connecting: Connecting,
+    mut accepting: Accepting,
     tables: &impl ReadableTables,
     blobs: &FsStore,
 ) -> anyhow::Result<()> {
     tracing::info!(
-        "got connecting, {:?}",
-        std::str::from_utf8(&connecting.alpn().await?)
+        "got accepting, {:?}",
+        std::str::from_utf8(&accepting.alpn().await?)
     );
-    let connection = connecting.await?;
+    let connection = accepting.await?;
     tracing::info!("got connection, waiting for request");
     let (mut send, mut recv) = connection.accept_bi().await?;
     tracing::info!("got request stream");
