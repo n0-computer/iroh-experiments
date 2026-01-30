@@ -5,8 +5,8 @@ use anyhow::Context;
 use clap::Parser;
 use futures_lite::StreamExt;
 use ipld_core::codec::Links;
-use iroh::discovery::{dns::DnsDiscovery, pkarr::PkarrPublisher, ConcurrentDiscovery};
 use iroh::EndpointAddr;
+use std::net::SocketAddr;
 use iroh_car::CarReader;
 use iroh_tickets::endpoint::EndpointTicket;
 use protocol::{ron_parser, Cid, Request};
@@ -33,20 +33,15 @@ async fn create_endpoint(
     ipv6_addr: Option<SocketAddrV6>,
 ) -> anyhow::Result<iroh::Endpoint> {
     let secret_key = util::get_or_create_secret()?;
-    let discovery = ConcurrentDiscovery::from_services(vec![
-        Box::new(DnsDiscovery::n0_dns().build()),
-        Box::new(PkarrPublisher::n0_dns().build(secret_key.clone())),
-    ]);
 
     let mut builder = iroh::Endpoint::builder()
         .secret_key(secret_key)
-        .alpns(vec![SYNC_ALPN.to_vec()])
-        .discovery(discovery);
+        .alpns(vec![SYNC_ALPN.to_vec()]);
     if let Some(addr) = ipv4_addr {
-        builder = builder.bind_addr_v4(addr);
+        builder = builder.bind_addr(SocketAddr::V4(addr))?;
     }
     if let Some(addr) = ipv6_addr {
-        builder = builder.bind_addr_v6(addr);
+        builder = builder.bind_addr(SocketAddr::V6(addr))?;
     }
 
     let endpoint = builder.bind().await?;
