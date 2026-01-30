@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 use bao_tree::ChunkNum;
 use iroh::{endpoint::Connection, Endpoint, EndpointId};
 use iroh_blobs::{
@@ -898,12 +898,7 @@ impl Tracker {
             let connecting = incoming.accept()?;
             let tracker = self.clone();
             tokio::spawn(async move {
-                let Ok((conn, _)) = connecting.into_0rtt() else {
-                    // this should never happen, but for now we handle it gracefully.
-                    // hopefully the API will be changed to not return a result.
-                    error!("error converting to 0-RTT connection");
-                    return;
-                };
+                let conn = connecting.into_0rtt();
                 let Some(alpn) = conn.alpn() else {
                     error!("no ALPN found on connection");
                     return;
@@ -912,6 +907,14 @@ impl Tracker {
                     error!("unexpected ALPN on connection: {:?}", alpn);
                     return;
                 }
+                // Wait for handshake to complete to get a Connection<HandshakeCompleted>
+                let conn = match conn.handshake_completed().await {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        error!("handshake failed: {e}");
+                        return;
+                    }
+                };
                 if let Err(cause) = tracker.handle_connection(conn).await {
                     tracing::error!("error handling connection: {}", cause);
                 }
@@ -923,9 +926,7 @@ impl Tracker {
     /// Handle a single incoming connection on the tracker ALPN.
     pub async fn handle_connection(&self, conn: Connection) -> anyhow::Result<()> {
         let (mut send, mut recv) = conn.accept_bi().await?;
-        let Ok(remote_endpoint_id) = conn.remote_id() else {
-            bail!("error getting remote endpoint id");
-        };
+        let remote_endpoint_id = conn.remote_id();
         trace!("remote endpoint id: {}", remote_endpoint_id);
         let request = recv.read_to_end(REQUEST_SIZE_LIMIT).await?;
         let request = postcard::from_bytes::<Request>(&request)?;

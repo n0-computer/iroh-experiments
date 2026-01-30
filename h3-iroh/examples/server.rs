@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
 
 async fn handle_connection(incoming: Incoming, root: Arc<Option<PathBuf>>) -> Result<()> {
     let conn = incoming.accept()?.await?;
-    let remote_endpoint_id = conn.remote_id()?;
+    let remote_endpoint_id = conn.remote_id();
     let span = Span::current();
     span.record(
         "remote_endpoint_id",

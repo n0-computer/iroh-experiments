@@ -7,7 +7,7 @@ use std::{
 };
 
 use clap::Parser;
-use iroh::{endpoint::BindError, Endpoint};
+use iroh::Endpoint;
 use iroh_content_discovery::protocol::ALPN;
 use iroh_content_tracker::{
     io::{
@@ -46,22 +46,22 @@ async fn create_endpoint(
     key: iroh::SecretKey,
     ipv4_addr: Option<SocketAddrV4>,
     ipv6_addr: Option<SocketAddrV6>,
-) -> Result<Endpoint, BindError> {
+) -> anyhow::Result<Endpoint> {
     let mut builder = iroh::Endpoint::builder()
         .secret_key(key.clone())
-        .discovery(
-            iroh::discovery::pkarr::dht::DhtDiscovery::builder()
+        .address_lookup(
+            iroh::address_lookup::DhtAddressLookup::builder()
                 .secret_key(key)
                 .build()?,
         )
         .alpns(vec![ALPN.to_vec()]);
     if let Some(ipv4_addr) = ipv4_addr {
-        builder = builder.bind_addr_v4(ipv4_addr);
+        builder = builder.bind_addr(std::net::SocketAddr::V4(ipv4_addr))?;
     }
     if let Some(ipv6_addr) = ipv6_addr {
-        builder = builder.bind_addr_v6(ipv6_addr);
+        builder = builder.bind_addr(std::net::SocketAddr::V6(ipv6_addr))?;
     }
-    builder.bind().await
+    Ok(builder.bind().await?)
 }
 
 /// Write default options to a sample config file.
