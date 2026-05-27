@@ -11,7 +11,7 @@ pub fn get_or_create_secret() -> anyhow::Result<SecretKey> {
             Ok(secret)
         }
         Err(_) => {
-            let secret = SecretKey::generate(&mut rand::rng());
+            let secret = SecretKey::generate();
             std::fs::write(FILENAME, secret.to_bytes())?;
             Ok(secret)
         }

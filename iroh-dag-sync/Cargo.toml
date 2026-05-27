@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-iroh-blobs = "0.98"
-iroh-gossip = "0.96"
-iroh = "0.96"
-iroh-tickets = "0.3"
+iroh-blobs = "0.102"
+iroh-gossip = "0.100"
+iroh = "1.0.0-rc.1"
+iroh-tickets = "1.0.0-rc.1"
 iroh-car = "0.5"
-redb = "2.6"
+redb = "4.1"
 clap = { version = "4.5.7", features = ["derive"] }
 tracing-subscriber = "0.3.18"
 anyhow = "1.0.86"

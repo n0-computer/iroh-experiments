@@ -6,6 +6,7 @@ use clap::Parser;
 use futures_lite::StreamExt;
 use ipld_core::codec::Links;
 use iroh::EndpointAddr;
+use redb::ReadableDatabase;
 use std::net::SocketAddr;
 use iroh_car::CarReader;
 use iroh_tickets::endpoint::EndpointTicket;
@@ -34,7 +35,7 @@ async fn create_endpoint(
 ) -> anyhow::Result<iroh::Endpoint> {
     let secret_key = util::get_or_create_secret()?;
 
-    let mut builder = iroh::Endpoint::builder()
+    let mut builder = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
         .secret_key(secret_key)
         .alpns(vec![SYNC_ALPN.to_vec()]);
     if let Some(addr) = ipv4_addr {
