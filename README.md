@@ -38,7 +38,7 @@ content-addressing to existing public resources.
 
 # License
 
-Copyright 2025 N0, INC.
+Copyright 2026 N0, INC.
 
 This project is licensed under either of
 
