@@ -26,9 +26,10 @@ missing_debug_implementations = "warn"
 unused-async = "warn"
 
 [workspace.dependencies]
-iroh = { version ="0.96", features = ["address-lookup-pkarr-dht"] }
-iroh-base = "0.96"
-iroh-blobs = "0.98"
+iroh = "1.0.0-rc.1"
+iroh-base = "1.0.0-rc.1"
+iroh-blobs = "0.102"
+iroh-mainline-address-lookup = "0.3"
 # explicitly specified until iroh minimal crates issues are solved, see https://github.com/n0-computer/iroh/pull/3255
 tokio = { version = "1.44.1" }
 tokio-stream = { version = "0.1.17" }

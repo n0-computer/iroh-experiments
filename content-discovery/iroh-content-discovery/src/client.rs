@@ -286,8 +286,9 @@ fn wait_for_session_ticket(connection: Connection<iroh::endpoint::HandshakeCompl
         // todo: use a more precise API for waiting once it is available.
         // See https://github.com/quinn-rs/quinn/pull/2257
         let wait_time = connection
-            .to_info()
-            .selected_path()
+            .paths()
+            .iter()
+            .find(|p| p.is_selected())
             .map(|p| p.rtt() * 2)
             .unwrap_or(std::time::Duration::from_millis(100));
         tokio::time::sleep(wait_time).await;

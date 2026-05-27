@@ -47,10 +47,10 @@ async fn create_endpoint(
     ipv4_addr: Option<SocketAddrV4>,
     ipv6_addr: Option<SocketAddrV6>,
 ) -> anyhow::Result<Endpoint> {
-    let mut builder = iroh::Endpoint::builder()
+    let mut builder = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
         .secret_key(key.clone())
         .address_lookup(
-            iroh::address_lookup::DhtAddressLookup::builder()
+            iroh_mainline_address_lookup::DhtAddressLookup::builder()
                 .secret_key(key)
                 .build()?,
         )
@@ -155,7 +155,7 @@ pub async fn load_secret_key(key_path: PathBuf) -> anyhow::Result<iroh::SecretKe
         let secret_key = SecretKey::from_bytes(&kp.private.to_bytes());
         Ok(secret_key)
     } else {
-        let secret_key = SecretKey::generate(&mut rand::rng());
+        let secret_key = SecretKey::generate();
         let ckey = ssh_key::private::Ed25519Keypair {
             public: secret_key.public().as_verifying_key().into(),
             private: secret_key.as_signing_key().into(),
