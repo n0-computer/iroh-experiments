@@ -45,7 +45,7 @@ impl S3Store {
     pub async fn import_url(&self, url: Url) -> anyhow::Result<Hash> {
         let mut http = HttpAdapter::new(url);
         let data = http.read_to_end().await?;
-        self.import_mem(data.into()).await
+        self.import_mem(data).await
     }
 
     /// Add an in-memory blob to the store.

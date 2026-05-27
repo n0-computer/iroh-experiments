@@ -6,11 +6,7 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use iroh::{
-    endpoint::presets,
-    protocol::Router,
-    Endpoint, EndpointAddr, SecretKey,
-};
+use iroh::{endpoint::presets, protocol::Router, Endpoint, EndpointAddr, SecretKey};
 use iroh_blobs::{ticket::BlobTicket, BlobFormat, BlobsProtocol};
 use iroh_io::{AsyncSliceReaderExt, HttpAdapter};
 use iroh_s3_bao_store::S3Store;
