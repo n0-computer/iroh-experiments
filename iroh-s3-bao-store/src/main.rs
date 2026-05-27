@@ -1,25 +1,20 @@
-use anyhow::Context;
-use clap::{Parser, Subcommand};
-use indicatif::{
-    HumanBytes, HumanDuration, MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle,
-};
-use iroh::{Endpoint, NodeAddr, SecretKey};
-use iroh_blobs::{
-    provider::{self, handle_connection, CustomEventSender, EventSender},
-    ticket::BlobTicket,
-    util::local_pool::LocalPool,
-    BlobFormat,
-};
-use iroh_io::{AsyncSliceReaderExt, HttpAdapter};
-use iroh_s3_bao_store::S3Store;
-use serde::Deserialize;
 use std::net::{SocketAddrV4, SocketAddrV6};
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
-    sync::Arc,
-    time::Duration,
 };
+
+use anyhow::Context;
+use clap::{Parser, Subcommand};
+use iroh::{
+    endpoint::presets,
+    protocol::Router,
+    Endpoint, EndpointAddr, SecretKey,
+};
+use iroh_blobs::{ticket::BlobTicket, BlobFormat, BlobsProtocol};
+use iroh_io::{AsyncSliceReaderExt, HttpAdapter};
+use iroh_s3_bao_store::S3Store;
+use serde::Deserialize;
 use url::Url;
 
 /// Send a file or directory between two machines, using blake3 verified streaming.
@@ -72,10 +67,10 @@ fn print_hash(hash: &iroh_blobs::Hash, format: Format) -> String {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Send a file or directory.
+    /// Serve a single S3 bucket as an iroh-blobs collection.
     ServeS3(ServeS3Args),
 
-    /// Receive a file or directory.
+    /// Serve a list of HTTP(S) URLs as iroh-blobs.
     ServeUrls(ImportS3Args),
 }
 
@@ -128,98 +123,11 @@ fn get_or_create_secret(print: bool) -> anyhow::Result<SecretKey> {
     match std::env::var("IROH_SECRET") {
         Ok(secret) => SecretKey::from_str(&secret).context("invalid secret"),
         Err(_) => {
-            let key = SecretKey::generate(rand::thread_rng());
+            let key = SecretKey::generate();
             if print {
-                eprintln!("using secret key {key}");
+                eprintln!("using secret key {}", hex::encode(key.to_bytes()));
             }
             Ok(key)
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct SendStatus {
-    /// the multiprogress bar
-    mp: MultiProgress,
-}
-
-impl SendStatus {
-    fn new() -> Self {
-        let mp = MultiProgress::new();
-        mp.set_draw_target(ProgressDrawTarget::stderr());
-        Self { mp }
-    }
-
-    fn new_client(&self) -> ClientStatus {
-        let current = self.mp.add(ProgressBar::hidden());
-        current.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} [{elapsed_precise}] {msg}")
-                .unwrap(),
-        );
-        current.enable_steady_tick(Duration::from_millis(100));
-        current.set_message("waiting for requests");
-        ClientStatus {
-            current: current.into(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ClientStatus {
-    current: Arc<ProgressBar>,
-}
-
-impl Drop for ClientStatus {
-    fn drop(&mut self) {
-        if Arc::strong_count(&self.current) == 1 {
-            self.current.finish_and_clear();
-        }
-    }
-}
-
-impl CustomEventSender for ClientStatus {
-    fn send(&self, event: iroh_blobs::provider::Event) -> futures_lite::future::Boxed<()> {
-        self.try_send(event);
-        Box::pin(std::future::ready(()))
-    }
-
-    fn try_send(&self, event: iroh_blobs::provider::Event) {
-        tracing::info!("{:?}", event);
-        let msg = match event {
-            provider::Event::ClientConnected { connection_id } => {
-                Some(format!("{connection_id} got connection"))
-            }
-            provider::Event::TransferBlobCompleted {
-                connection_id,
-                hash,
-                index,
-                size,
-                ..
-            } => Some(format!(
-                "{} transfer blob completed {} {} {}",
-                connection_id,
-                hash,
-                index,
-                HumanBytes(size)
-            )),
-            provider::Event::TransferCompleted {
-                connection_id,
-                stats,
-                ..
-            } => Some(format!(
-                "{} transfer completed {} {}",
-                connection_id,
-                stats.send.write_bytes.size,
-                HumanDuration(stats.send.write_bytes.stats.duration)
-            )),
-            provider::Event::TransferAborted { connection_id, .. } => {
-                Some(format!("{connection_id} transfer completed"))
-            }
-            _ => None,
-        };
-        if let Some(msg) = msg {
-            self.current.set_message(msg);
         }
     }
 }
@@ -228,41 +136,31 @@ async fn serve_db(
     db: S3Store,
     iroh_ipv4_addr: Option<SocketAddrV4>,
     iroh_ipv6_addr: Option<SocketAddrV6>,
-    on_addr: impl FnOnce(NodeAddr) -> anyhow::Result<()>,
+    on_addr: impl FnOnce(EndpointAddr) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let secret_key = get_or_create_secret(true)?;
-    // create an iroh endpoint
-    let mut builder = Endpoint::builder()
-        .alpns(vec![iroh_blobs::protocol::ALPN.to_vec()])
+    let mut builder = Endpoint::builder(presets::N0)
+        .alpns(vec![iroh_blobs::ALPN.to_vec()])
         .secret_key(secret_key);
 
     if let Some(addr) = iroh_ipv4_addr {
-        builder = builder.bind_addr_v4(addr);
+        builder = builder.bind_addr(std::net::SocketAddr::V4(addr))?;
     }
     if let Some(addr) = iroh_ipv6_addr {
-        builder = builder.bind_addr_v6(addr);
+        builder = builder.bind_addr(std::net::SocketAddr::V6(addr))?;
     }
-    // wait for the endpoint to be ready
     let endpoint = builder.bind().await?;
-    // wait for the endpoint to figure out its address before making a ticket
-    endpoint.home_relay().initialized().await?;
-    // make a ticket
-    let addr = endpoint.node_addr().await?;
+    endpoint.online().await;
+    let addr = endpoint.addr();
     on_addr(addr)?;
-    let lp = LocalPool::single();
-    let ps = SendStatus::new();
-    let sc = Arc::new(ps.new_client());
-    loop {
-        let Some(connecting) = endpoint.accept().await else {
-            tracing::info!("no more incoming connections, exiting");
-            break;
-        };
-        let db = db.clone();
-        let lph = lp.handle().clone();
-        let sc = sc.clone();
-        let conn = connecting.await?;
-        tokio::spawn(handle_connection(conn, db, EventSender::new(Some(sc)), lph));
-    }
+
+    let blobs = BlobsProtocol::new(db.as_ref(), None);
+    let router = Router::builder(endpoint)
+        .accept(iroh_blobs::ALPN, blobs)
+        .spawn();
+
+    tokio::signal::ctrl_c().await?;
+    router.shutdown().await?;
     Ok(())
 }
 
@@ -298,7 +196,7 @@ async fn serve_s3(args: ServeS3Args) -> anyhow::Result<()> {
         args.common.iroh_ipv6_addr,
         |addr| {
             if let Some(hash) = last_hash {
-                let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq)?;
+                let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq);
                 println!("collection: {ticket}");
             }
             Ok(())
@@ -333,11 +231,11 @@ async fn serve_urls(args: ImportS3Args) -> anyhow::Result<()> {
         args.common.iroh_ipv6_addr,
         |addr| {
             for (name, hash) in &hashes {
-                let ticket = BlobTicket::new(addr.clone(), *hash, BlobFormat::Raw)?;
+                let ticket = BlobTicket::new(addr.clone(), *hash, BlobFormat::Raw);
                 println!("{name} {ticket}");
             }
             if let Some(hash) = last_hash {
-                let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq)?;
+                let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::HashSeq);
                 println!("collection: {ticket}");
             }
             Ok(())
