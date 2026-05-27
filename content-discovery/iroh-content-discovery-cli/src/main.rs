@@ -5,10 +5,10 @@ use std::str::FromStr;
 use anyhow::bail;
 use clap::Parser;
 use iroh::endpoint::{self, presets, BindError};
-use iroh_mainline_address_lookup::DhtAddressLookup;
 use iroh_content_discovery::protocol::{
     AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce,
 };
+use iroh_mainline_address_lookup::DhtAddressLookup;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::args::{AnnounceArgs, Args, Commands, ContentArg, QueryArgs};
