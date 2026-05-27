@@ -2,6 +2,7 @@
 name = "iroh-dag-sync"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 iroh-blobs = "0.102"
