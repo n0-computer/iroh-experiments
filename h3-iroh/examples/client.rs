@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     let ticket = EndpointTicket::from_str(ticket)?;
     let addr: EndpointAddr = ticket.into();
 
-    let ep = iroh::Endpoint::builder()
+    let ep = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
         .keylog(args.keylogfile)
         .bind()
         .await?;

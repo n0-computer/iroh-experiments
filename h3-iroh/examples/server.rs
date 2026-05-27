@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
         Arc::new(None)
     };
 
-    let ep = iroh::Endpoint::builder()
+    let ep = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
         .alpns(vec![b"iroh+h3".to_vec()])
         .bind()
         .await?;
