@@ -8,6 +8,14 @@ The data itself remains remote. The upside is that the data is now content-addre
 so any change will be immediately detected and will lead to a failure to serve
 the content, just as if the changed data was not there at all.
 
+> [!NOTE]
+> This crate is intentionally pinned to `iroh@0.35` / `iroh-blobs@0.35`. The
+> actor-based `Store` introduced in iroh-blobs 0.102 no longer exposes a
+> trait-based extension point for a custom data backend, so the "outboard in
+> memory, data stays remote" design cannot currently be expressed against
+> the newer API. This crate will be migrated once an extension hook is
+> available upstream.
+
 # serve-urls
 
 This just takes a list of urls and serves them all as a collection.
