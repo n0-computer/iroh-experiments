@@ -2,14 +2,15 @@
 name = "iroh-dag-sync"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-iroh-blobs = "0.98"
-iroh-gossip = "0.96"
-iroh = "0.96"
-iroh-tickets = "0.3"
+iroh-blobs = "0.102"
+iroh-gossip = "0.100"
+iroh = "1.0.0-rc.1"
+iroh-tickets = "1.0.0-rc.1"
 iroh-car = "0.5"
-redb = "2.6"
+redb = "4.1"
 clap = { version = "4.5.7", features = ["derive"] }
 tracing-subscriber = "0.3.18"
 anyhow = "1.0.86"
@@ -30,5 +31,5 @@ serde_bytes = "0.11.14"
 ipld-core = "0.4.1"
 multihash = "0.19.1"
 cid = { version = "0.11.1", features = ["serde"] }
-multihash-codetable = "0.1.3"
+multihash-codetable = "0.2"
 serde_ipld_dagcbor = "0.6.1"

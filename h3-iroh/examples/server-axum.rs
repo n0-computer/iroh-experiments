@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new().route("/", get(handler));
 
-    let ep = iroh::Endpoint::builder()
+    let ep = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
         .alpns(vec![b"iroh+h3".to_vec()])
         .bind()
         .await?;

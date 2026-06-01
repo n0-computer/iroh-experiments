@@ -400,7 +400,7 @@ type ReadChunkFuture = ReusableBoxFuture<
     'static,
     (
         endpoint::RecvStream,
-        Result<Option<endpoint::Chunk>, endpoint::ReadError>,
+        Result<Option<Bytes>, endpoint::ReadError>,
     ),
 >;
 
@@ -431,9 +431,7 @@ impl quic::RecvStream for RecvStream {
 
         let (stream, chunk) = ready!(self.read_chunk_fut.poll(cx));
         self.stream = Some(stream);
-        let chunk = chunk
-            .map_err(|err| StreamErrorIncoming::Unknown(Box::new(err)))?
-            .map(|c| c.bytes);
+        let chunk = chunk.map_err(|err| StreamErrorIncoming::Unknown(Box::new(err)))?;
         Poll::Ready(Ok(chunk))
     }
 

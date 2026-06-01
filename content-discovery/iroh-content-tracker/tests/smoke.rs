@@ -1,6 +1,6 @@
 use std::{time::Duration, vec};
 
-use iroh::{protocol::RouterBuilder, Endpoint};
+use iroh::{endpoint::presets, protocol::RouterBuilder, Endpoint};
 use iroh_blobs::{store::mem::MemStore, BlobsProtocol};
 use iroh_content_discovery::{
     announce,
@@ -13,12 +13,12 @@ use iroh_content_tracker::tracker::Tracker;
 async fn smoke_test() -> anyhow::Result<()> {
     tracing_subscriber::fmt().init();
     let tempdir = tempfile::tempdir()?;
-    let tracker_ep = Endpoint::builder()
+    let tracker_ep = Endpoint::builder(presets::N0)
         .alpns(vec![iroh_content_discovery::ALPN.to_vec()])
         .bind()
         .await?;
-    let provider_ep = Endpoint::bind().await?;
-    let client_ep = Endpoint::bind().await?;
+    let provider_ep = Endpoint::bind(presets::N0).await?;
+    let client_ep = Endpoint::bind(presets::N0).await?;
     let mut options = iroh_content_tracker::options::Options::debug();
     options.announce_data_path = tempdir.path().join("announce.redb");
     let tracker = Tracker::new(options, tracker_ep.clone())?;

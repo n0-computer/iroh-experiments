@@ -2,14 +2,15 @@
 name = "iroh-pkarr-naming-system"
 version = "0.2.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1.0.79"
 derive_more = "2.0"
-iroh = "0.96"
-iroh-blobs = "0.98"
+iroh = "1.0.0-rc.1"
+iroh-blobs = "0.102"
 pkarr = { version = "5", features = ["dht"] }
 tokio = "1.35.1"
 tokio-util = "0.7.12"

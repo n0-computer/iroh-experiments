@@ -893,8 +893,8 @@ impl Tracker {
 
     pub async fn accept_loop(self, endpoint: Endpoint) -> std::io::Result<()> {
         while let Some(incoming) = endpoint.accept().await {
-            let socket_addr = incoming.remote_address();
-            trace!("got incoming connection from {socket_addr}");
+            let socket_addr = incoming.remote_addr();
+            trace!("got incoming connection from {socket_addr:?}");
             let connecting = incoming.accept()?;
             let tracker = self.clone();
             tokio::spawn(async move {

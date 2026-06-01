@@ -4,10 +4,11 @@ use std::str::FromStr;
 
 use anyhow::bail;
 use clap::Parser;
-use iroh::endpoint::{self, BindError};
+use iroh::endpoint::{self, presets, BindError};
 use iroh_content_discovery::protocol::{
     AbsoluteTime, Announce, AnnounceKind, Query, QueryFlags, SignedAnnounce,
 };
+use iroh_mainline_address_lookup::DhtAddressLookup;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::args::{AnnounceArgs, Args, Commands, ContentArg, QueryArgs};
@@ -84,10 +85,8 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
 /// Create an endpoint that does look up discovery info via DNS or the DHT, but does not
 /// announce. The client node id is ephemeral and will not be dialed by anyone.
 async fn create_client_endpoint() -> Result<endpoint::Endpoint, BindError> {
-    let address_lookup = iroh::address_lookup::DhtAddressLookup::builder()
-        .dht(true)
-        .n0_dns_pkarr_relay();
-    endpoint::Endpoint::builder()
+    let address_lookup = DhtAddressLookup::builder().no_publish().build()?;
+    endpoint::Endpoint::builder(presets::N0)
         .address_lookup(address_lookup)
         .bind()
         .await

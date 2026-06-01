@@ -1,13 +1,8 @@
-# IPNS, the iroh pkarr naming system
+# h3-iroh
 
-This is a minimalist reimplementation of the idea of [ipfs_ipns] using the
-bittorrent mainline DHT via [pkarr].
+Sending HTTP3 requests over iroh connections via the [h3](https://crates.io/crates/h3) crate.
 
-It can be used to publish an iroh blake3 content hash under an ed25519 public
-key, and to retrieve the latest content hash.
-
-[pkarr]: https://pkarr.org
-[ipfs_ipns]: https://docs.ipfs.tech/concepts/ipns/
+See `examples/` for client and server usage.
 
 # License
 

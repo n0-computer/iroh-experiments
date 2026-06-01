@@ -8,6 +8,12 @@ The data itself remains remote. The upside is that the data is now content-addre
 so any change will be immediately detected and will lead to a failure to serve
 the content, just as if the changed data was not there at all.
 
+> [!NOTE]
+> This crate is currently pinned to `iroh@0.35` / `iroh-blobs@0.35`. The
+> store API in iroh-blobs 0.102 is structured differently, and porting the
+> "outboard in memory, data stays remote" behaviour properly hasn't been
+> done yet — left for future work.
+
 # serve-urls
 
 This just takes a list of urls and serves them all as a collection.
@@ -39,3 +45,20 @@ Below an example bucket policy:
     ]
 }
 ```
+
+# License
+
+This project is licensed under either of
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](../LICENSE-APACHE) or
+   http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](../LICENSE-MIT) or
+   http://opensource.org/licenses/MIT)
+
+at your option.
+
+### Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this project by you, as defined in the Apache-2.0 license,
+shall be dual licensed as above, without any additional terms or conditions.

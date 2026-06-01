@@ -6,11 +6,12 @@ use clap::Parser;
 use futures_lite::StreamExt;
 use ipld_core::codec::Links;
 use iroh::EndpointAddr;
-use std::net::SocketAddr;
 use iroh_car::CarReader;
 use iroh_tickets::endpoint::EndpointTicket;
 use protocol::{ron_parser, Cid, Request};
+use redb::ReadableDatabase;
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use sync::{handle_request, handle_sync_response};
 use tables::{ReadOnlyTables, ReadableTables, Tables};
 use tokio::io::AsyncWriteExt;
@@ -34,7 +35,7 @@ async fn create_endpoint(
 ) -> anyhow::Result<iroh::Endpoint> {
     let secret_key = util::get_or_create_secret()?;
 
-    let mut builder = iroh::Endpoint::builder()
+    let mut builder = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
         .secret_key(secret_key)
         .alpns(vec![SYNC_ALPN.to_vec()]);
     if let Some(addr) = ipv4_addr {
