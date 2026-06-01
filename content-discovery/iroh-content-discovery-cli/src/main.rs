@@ -82,13 +82,8 @@ async fn query(args: QueryArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Create an endpoint that does look up discovery info via the DHT, but does not
+/// Create an endpoint that does look up discovery info via DNS or the DHT, but does not
 /// announce. The client node id is ephemeral and will not be dialed by anyone.
-///
-/// Note: prior to the migration to `iroh-mainline-address-lookup`, this also
-/// looked up via the n0 DNS pkarr relay. `DhtAddressLookup` no longer supports
-/// pkarr relays — it is DHT-only. See
-/// <https://github.com/n0-computer/iroh-address-lookups/issues/6>.
 async fn create_client_endpoint() -> Result<endpoint::Endpoint, BindError> {
     let address_lookup = DhtAddressLookup::builder().no_publish().build()?;
     endpoint::Endpoint::builder(presets::N0)

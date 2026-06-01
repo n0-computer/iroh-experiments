@@ -9,12 +9,10 @@ so any change will be immediately detected and will lead to a failure to serve
 the content, just as if the changed data was not there at all.
 
 > [!NOTE]
-> This crate is intentionally pinned to `iroh@0.35` / `iroh-blobs@0.35`. The
-> actor-based `Store` introduced in iroh-blobs 0.102 no longer exposes a
-> trait-based extension point for a custom data backend, so the "outboard in
-> memory, data stays remote" design cannot currently be expressed against
-> the newer API. This crate will be migrated once an extension hook is
-> available upstream.
+> This crate is currently pinned to `iroh@0.35` / `iroh-blobs@0.35`. The
+> store API in iroh-blobs 0.102 is structured differently, and porting the
+> "outboard in memory, data stays remote" behaviour properly hasn't been
+> done yet — left for future work.
 
 # serve-urls
 
