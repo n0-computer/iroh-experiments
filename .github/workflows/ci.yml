@@ -8,6 +8,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   RUST_BACKTRACE: 1
   RUSTFLAGS: -Dwarnings
@@ -37,25 +40,25 @@ jobs:
       RUSTC_WRAPPER: "sccache"
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        submodules: recursive
+        persist-credentials: false
 
     - name: Install ${{ matrix.rust }}
-      uses: dtolnay/rust-toolchain@master
+      uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
       with:
         toolchain: ${{ matrix.rust }}
         components: clippy,rustfmt
 
     - name: Run sccache-cache
-      uses: mozilla-actions/sccache-action@v0.0.9
+      uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
 
     - name: check
       run: |
         for i in ${RS_EXAMPLES_LIST//,/ }
         do
           echo "Checking $i"
-          cargo check --manifest-path $i/Cargo.toml --all-features
+          cargo check --locked --manifest-path "$i/Cargo.toml" --all-features
         done
       env:
         RUST_LOG: ${{ runner.debug && 'DEBUG' || 'INFO'}}
@@ -65,7 +68,7 @@ jobs:
           for i in ${RS_EXAMPLES_LIST//,/ }
           do
             echo "Checking $i"
-            cargo fmt --all --manifest-path $i/Cargo.toml -- --check
+            cargo fmt --all --manifest-path "$i/Cargo.toml" -- --check
           done
       env:
           RUST_LOG: ${{ runner.debug && 'DEBUG' || 'INFO'}}
@@ -75,7 +78,32 @@ jobs:
           for i in ${RS_EXAMPLES_LIST//,/ }
           do
             echo "Checking $i"
-            cargo clippy --manifest-path $i/Cargo.toml
+            cargo clippy --locked --manifest-path "$i/Cargo.toml"
           done
       env:
           RUST_LOG: ${{ runner.debug && 'DEBUG' || 'INFO'}}
+
+  cargo_deny:
+    timeout-minutes: 30
+    name: cargo deny (${{ matrix.crate }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - content-discovery
+          - iroh-pkarr-naming-system
+          - iroh-s3-bao-store
+          - iroh-dag-sync
+          - h3-iroh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Each crate has its own deny.toml next to its manifest.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: ${{ matrix.crate }}/Cargo.toml
+          arguments: --all-features
+          command: check
+          command-arguments: "-Dwarnings"

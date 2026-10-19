@@ -968,26 +968,20 @@ impl Tracker {
         rx.await?
     }
 
-    async fn set_size(
-        &self,
-        hash: Hash,
-        size: u64,
-    ) -> std::result::Result<(), mpsc::error::SendError<ActorMessage>> {
+    async fn set_size(&self, hash: Hash, size: u64) -> anyhow::Result<()> {
         self.0
             .actor
             .send(ActorMessage::SetSize { hash, size })
-            .await
+            .await?;
+        Ok(())
     }
 
-    async fn set_sizes(
-        &self,
-        hash: Hash,
-        sizes: (HashSeq, Arc<[u64]>),
-    ) -> std::result::Result<(), mpsc::error::SendError<ActorMessage>> {
+    async fn set_sizes(&self, hash: Hash, sizes: (HashSeq, Arc<[u64]>)) -> anyhow::Result<()> {
         self.0
             .actor
             .send(ActorMessage::SetSizes { hash, sizes })
-            .await
+            .await?;
+        Ok(())
     }
 
     async fn get_or_insert_size(
@@ -1157,7 +1151,7 @@ impl Tracker {
         endpoint: EndpointId,
         results: Vec<(HashAndFormat, AnnounceKind, anyhow::Result<Stats>)>,
         now: AbsoluteTime,
-    ) -> std::result::Result<(), mpsc::error::SendError<ActorMessage>> {
+    ) -> anyhow::Result<()> {
         self.0
             .actor
             .send(ActorMessage::StoreProbeResult {
@@ -1165,7 +1159,8 @@ impl Tracker {
                 results,
                 now,
             })
-            .await
+            .await?;
+        Ok(())
     }
 
     /// Execute probes for a single peer.

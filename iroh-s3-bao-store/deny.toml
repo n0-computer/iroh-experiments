@@ -1,0 +1,46 @@
+[advisories]
+yanked = "deny"
+ignore = [
+    # Everything below comes from iroh 0.35 and its deps. Remove once this
+    # experiment is ported to iroh 1.0.
+    "RUSTSEC-2024-0384", # unmaintained: instant, via iroh
+    "RUSTSEC-2024-0436", # unmaintained: paste, via netlink-packet-utils and stun-rs
+    "RUSTSEC-2024-0370", # unmaintained: proc-macro-error, via genawaiter (bao-tree, iroh-blobs)
+    "RUSTSEC-2026-0002", # lru 0.12 / 0.13 via iroh-relay and pkarr 3. Fixed in lru 0.16.3
+    "RUSTSEC-2026-0253", # lru 0.12 / 0.13 via iroh-relay and pkarr 3. Fixed in lru 0.18.2
+    "RUSTSEC-2026-0118", # hickory-proto 0.25, via hickory-resolver. No fix released
+    "RUSTSEC-2026-0119", # hickory-proto 0.25, via hickory-resolver. Fixed in 0.26.1
+    "RUSTSEC-2026-0049", # rustls-webpki 0.102, via iroh and iroh-relay. Fixed in 0.103
+    "RUSTSEC-2026-0098", # rustls-webpki 0.102, via iroh and iroh-relay. Fixed in 0.103
+    "RUSTSEC-2026-0099", # rustls-webpki 0.102, via iroh and iroh-relay. Fixed in 0.103
+    "RUSTSEC-2026-0104", # rustls-webpki 0.102, via iroh and iroh-relay. Fixed in 0.103
+    # Not from iroh.
+    "RUSTSEC-2025-0119", # unmaintained: number_prefix, via indicatif 0.17. Fixed by indicatif 0.18
+    "RUSTSEC-2026-0258", # h2 0.3, via iroh-io -> reqwest 0.11. Fixed in h2 0.4.16
+]
+
+[bans]
+deny = [
+    "native-tls",
+    "openssl",
+]
+multiple-versions = "allow"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Zlib",
+    "Unicode-3.0",
+    "Unlicense",
+]
+
+[sources]
+allow-git = []

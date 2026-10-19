@@ -1,0 +1,38 @@
+# Keep GitHub Actions and cargo deps up to date with GitHub's Dependabot.
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# The cooldown lets a compromised publish be noticed before we propose it. It
+# applies to version updates only -- security updates ignore it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    groups:
+      github-actions:
+        patterns:
+          - "*"  # Group all Actions updates into a single larger pull request
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+      day: "thursday"
+      time: "08:00"
+      timezone: "America/New_York"
+  - package-ecosystem: cargo
+    # Each experiment is its own workspace with its own lock file.
+    directories:
+      - /content-discovery
+      - /h3-iroh
+      - /iroh-dag-sync
+      - /iroh-pkarr-naming-system
+      - /iroh-s3-bao-store
+    cooldown:
+      default-days: 7
+    schedule:
+      interval: weekly
+      day: "thursday"
+      time: "08:00"
+      timezone: "America/New_York"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
