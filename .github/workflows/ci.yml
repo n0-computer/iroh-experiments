@@ -82,3 +82,28 @@ jobs:
           done
       env:
           RUST_LOG: ${{ runner.debug && 'DEBUG' || 'INFO'}}
+
+  cargo_deny:
+    timeout-minutes: 30
+    name: cargo deny (${{ matrix.crate }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - content-discovery
+          - iroh-pkarr-naming-system
+          - iroh-s3-bao-store
+          - iroh-dag-sync
+          - h3-iroh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Each crate has its own deny.toml next to its manifest.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: ${{ matrix.crate }}/Cargo.toml
+          arguments: --all-features
+          command: check
+          command-arguments: "-Dwarnings"
