@@ -55,7 +55,7 @@ jobs:
         for i in ${RS_EXAMPLES_LIST//,/ }
         do
           echo "Checking $i"
-          cargo check --manifest-path $i/Cargo.toml --all-features
+          cargo check --locked --manifest-path $i/Cargo.toml --all-features
         done
       env:
         RUST_LOG: ${{ runner.debug && 'DEBUG' || 'INFO'}}
@@ -75,7 +75,7 @@ jobs:
           for i in ${RS_EXAMPLES_LIST//,/ }
           do
             echo "Checking $i"
-            cargo clippy --manifest-path $i/Cargo.toml
+            cargo clippy --locked --manifest-path $i/Cargo.toml
           done
       env:
           RUST_LOG: ${{ runner.debug && 'DEBUG' || 'INFO'}}
