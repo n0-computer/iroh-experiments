@@ -968,6 +968,7 @@ impl Tracker {
         rx.await?
     }
 
+    #[allow(clippy::result_large_err)]
     async fn set_size(
         &self,
         hash: Hash,
@@ -979,6 +980,7 @@ impl Tracker {
             .await
     }
 
+    #[allow(clippy::result_large_err)]
     async fn set_sizes(
         &self,
         hash: Hash,
@@ -1152,6 +1154,7 @@ impl Tracker {
     }
 
     /// Apply the results of a probe to the database.
+    #[allow(clippy::result_large_err)]
     async fn apply_result(
         &self,
         endpoint: EndpointId,
