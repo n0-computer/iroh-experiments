@@ -8,7 +8,7 @@ use http::{Request, Response, Version};
 use http_body_util::BodyExt;
 use iroh::Endpoint;
 use tower::Service;
-use tracing::{debug, error, info_span, trace, warn, Instrument};
+use tracing::{Instrument, debug, error, info_span, trace, warn};
 
 static ALPN: &[u8] = b"iroh+h3";
 
