@@ -3,7 +3,7 @@
 //! run using `cargo run --features axum --example server-axum`
 
 use anyhow::Result;
-use axum::{response::Html, routing::get, Router};
+use axum::{Router, response::Html, routing::get};
 use iroh_tickets::endpoint::EndpointTicket;
 use tracing::info;
 

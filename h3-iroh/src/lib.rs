@@ -12,7 +12,7 @@ use std::{
 };
 
 use bytes::{Buf, Bytes};
-use futures::{ready, stream, Stream, StreamExt};
+use futures::{Stream, StreamExt, ready, stream};
 use h3::quic::{self, ConnectionErrorIncoming, StreamErrorIncoming, StreamId, WriteBuf};
 use iroh::endpoint::{self, ClosedStream, ReadDatagram};
 pub use iroh::endpoint::{AcceptBi, AcceptUni, Endpoint, OpenBi, OpenUni, VarInt, WriteError};

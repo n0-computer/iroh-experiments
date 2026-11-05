@@ -4,7 +4,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use bytes::{Bytes, BytesMut};
 use clap::Parser;
 use h3::{quic::BidiStream, server::RequestStream};
@@ -12,7 +12,7 @@ use http::{Request, StatusCode};
 use iroh::endpoint::Incoming;
 use iroh_tickets::endpoint::EndpointTicket;
 use tokio::{fs::File, io::AsyncReadExt};
-use tracing::{debug, error, field, info, info_span, Instrument, Span};
+use tracing::{Instrument, Span, debug, error, field, info, info_span};
 
 #[derive(Parser, Debug)]
 #[command()]

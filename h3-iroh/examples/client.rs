@@ -1,6 +1,6 @@
 use std::{future, str::FromStr};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use iroh::EndpointAddr;
 use iroh_tickets::endpoint::EndpointTicket;
